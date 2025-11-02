@@ -1,122 +1,101 @@
-// my-react-app/src/pages/tutor/TutorLogin.tsx
+// src/pages/tutor/TutorLogin.tsx
+import React, { useState } from "react";
+import {
+  Box,
+  Container,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+} from "@mui/material";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { storeAuthState, markActiveUserType } from '../../utils/authStorage';
-
-const TutorLogin = () => {
-  const [formData, setFormData] = useState({
-    email: '',
-    password: ''
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+export default function TutorLogin() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const navigate = useNavigate();
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-
     try {
-      const res = await axios.post('http://localhost:3000/api/login', formData);
-      if (res.data?.user && res.data?.token) {
-        storeAuthState('tutor', res.data.token, res.data.user);
-        markActiveUserType('tutor');
-      }
-      navigate('/tutor/dashboard');
+      const res = await axios.post("http://localhost:3000/api/tutor/login", {
+        email,
+        password,
+      });
+      localStorage.setItem("tutorToken", res.data.token);
+      navigate("/tutor/dashboard");
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Login failed');
-    } finally {
-      setLoading(false);
+      setError(err.response?.data?.message || "Login failed.");
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="card max-w-md w-full p-8">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-2xl font-bold text-gray-600">MT</span>
-          </div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Tutor Login</h1>
-          <p className="text-gray-600">Welcome back! Sign in to help students.</p>
-        </div>
+    <Box
+      sx={{
+        minHeight: "100vh",
+        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        py: 4,
+      }}
+    >
+      <Container maxWidth="sm">
+        <Paper
+          elevation={6}
+          sx={{
+            p: 5,
+            borderRadius: 4,
+            textAlign: "center",
+          }}
+        >
+          <Typography variant="h4" fontWeight="bold" gutterBottom>
+            Tutor Login
+          </Typography>
+          <Typography variant="body1" color="text.secondary" mb={3}>
+            Welcome back! Please sign in to your account.
+          </Typography>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Email Address
-            </label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              className="input"
-              placeholder="Enter your email"
-              required
+          <Box component="form" onSubmit={handleSubmit}>
+            <TextField
+              label="Email"
+              variant="outlined"
+              fullWidth
+              margin="normal"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
             />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Password
-            </label>
-            <input
+            <TextField
+              label="Password"
               type="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              className="input"
-              placeholder="Enter your password"
-              required
+              variant="outlined"
+              fullWidth
+              margin="normal"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
             />
-          </div>
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
+            {error && (
+              <Typography color="error" sx={{ mt: 1, fontSize: 14 }}>
+                {error}
+              </Typography>
+            )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="btn btn-primary w-full"
-          >
-            {loading ? 'Signing In...' : 'Sign In'}
-          </button>
-        </form>
-
-        <div className="mt-6 text-center space-y-2">
-          <Link to="/tutor/forgot-password" className="text-sm text-blue-600 hover:underline">
-            Forgot your password?
-          </Link>
-          <p className="text-sm text-gray-600">
-            Don't have an account?{' '}
-            <Link to="/tutor/setup" className="text-blue-600 hover:underline">
-              Set up your profile
-            </Link>
-          </p>
-        </div>
-
-        <div className="mt-6 text-center">
-          <Link to="/" className="text-sm text-gray-500 hover:underline">
-            ← Back to Home
-          </Link>
-        </div>
-      </div>
-    </div>
+            <Button
+              variant="contained"
+              color="success"
+              size="large"
+              fullWidth
+              type="submit"
+              sx={{ mt: 3 }}
+            >
+              Login
+            </Button>
+          </Box>
+        </Paper>
+      </Container>
+    </Box>
   );
-};
-
-export default TutorLogin;
+}

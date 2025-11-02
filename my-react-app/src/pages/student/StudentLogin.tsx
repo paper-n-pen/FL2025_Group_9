@@ -1,134 +1,121 @@
+// src/pages/student/StudentLogin.tsx
 import React, { useState } from "react";
 import {
   Box,
-  Paper,
+  Container,
+  Typography,
   TextField,
   Button,
-  Typography,
   Link as MuiLink,
+  Paper,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import axios, { isAxiosError } from "axios";
+import axios from "axios";
 
-interface LoginResponse {
-  token: string;
-}
+axios.defaults.withCredentials = true; // 👈 enable cookie sending globally
 
 export default function StudentLogin() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const navigate = useNavigate();
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
+
     try {
-      const res = await axios.post<LoginResponse>("/api/login", { email, password });
-      const token = res.data.token;
-      localStorage.setItem("token", token);
-      navigate("/student/dashboard");
-    } catch (err) {
-      if (isAxiosError(err)) {
-        setError(err.response?.data?.message || "Login failed.");
-      } else {
-        setError("An unexpected error occurred.");
-      }
+      const res = await axios.post(
+        "http://localhost:3000/api/login",
+        form,
+        { withCredentials: true } // 👈 include cookies
+      );
+
+      console.log("Login success:", res.data);
+
+      const { user } = res.data;
+      if (!user) throw new Error("Missing user data");
+
+      localStorage.setItem("user", JSON.stringify(user));
+
+      if (user.userType === "student") navigate("/student/dashboard");
+      else if (user.userType === "tutor") navigate("/tutor/dashboard");
+      else navigate("/");
+    } catch (err: any) {
+      console.error("Login failed:", err);
+      setError(err.response?.data?.message || "Login failed. Please try again.");
     }
   };
 
   return (
     <Box
       sx={{
+        minHeight: "100vh",
         display: "flex",
-        justifyContent: "center",
         alignItems: "center",
-        minHeight: "calc(100vh - 80px)", // subtract header height
-        px: 2,
+        justifyContent: "center",
+        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
       }}
     >
-      <Paper
-        elevation={8}
-        sx={{
-          p: 5,
-          borderRadius: 4,
-          width: "100%",
-          maxWidth: 420,
-          textAlign: "center",
-        }}
-      >
-        <Typography variant="h5" fontWeight="bold" gutterBottom>
-          Student Login
-        </Typography>
-        <Typography variant="body2" color="text.secondary" mb={3}>
-          Welcome back! Sign in to continue learning.
-        </Typography>
+      <Container maxWidth="sm">
+        <Paper elevation={6} sx={{ p: 6, borderRadius: 4, textAlign: "center" }}>
+          <Typography variant="h4" fontWeight="bold" gutterBottom>
+            Student Login
+          </Typography>
+          <Typography variant="body1" color="text.secondary" mb={3}>
+            Welcome back! Please log in to your account.
+          </Typography>
 
-        <Box component="form" onSubmit={handleLogin}>
-          <TextField
-            fullWidth
-            margin="normal"
-            label="Email Address"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-          <TextField
-            fullWidth
-            margin="normal"
-            label="Password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+          <Box component="form" onSubmit={handleSubmit}>
+            <TextField
+              fullWidth
+              label="Email"
+              name="email"
+              value={form.email}
+              onChange={handleChange}
+              margin="normal"
+              required
+            />
+            <TextField
+              fullWidth
+              label="Password"
+              name="password"
+              type="password"
+              value={form.password}
+              onChange={handleChange}
+              margin="normal"
+              required
+            />
 
-          {error && (
-            <Typography color="error" variant="body2" mt={1}>
-              {error}
-            </Typography>
-          )}
+            <Button
+              fullWidth
+              type="submit"
+              variant="contained"
+              color="primary"
+              size="large"
+              sx={{ mt: 3 }}
+            >
+              Login
+            </Button>
 
-          <Button
-            fullWidth
-            variant="contained"
-            color="primary"
-            type="submit"
-            sx={{ mt: 3, mb: 2 }}
-          >
-            Sign In
-          </Button>
-        </Box>
+            {error && (
+              <Typography color="error" mt={2}>
+                {error}
+              </Typography>
+            )}
+          </Box>
 
-        <MuiLink
-          component={Link}
-          to="/student/forgot-password"
-          underline="hover"
-          color="primary"
-          display="block"
-          mb={2}
-        >
-          Forgot your password?
-        </MuiLink>
-
-        <Typography variant="body2" color="text.secondary">
-          Don’t have an account?{" "}
-          <MuiLink component={Link} to="/student/register" underline="hover" color="primary">
-            Sign up here
-          </MuiLink>
-        </Typography>
-
-        <MuiLink
-          component={Link}
-          to="/"
-          underline="hover"
-          color="primary"
-          display="block"
-          mt={2}
-        >
-          ← Back to Home
-        </MuiLink>
-      </Paper>
+          <Typography variant="body2" mt={3}>
+            Don't have an account?{" "}
+            <MuiLink component={Link} to="/student/register">
+              Sign up here
+            </MuiLink>
+          </Typography>
+        </Paper>
+      </Container>
     </Box>
   );
 }

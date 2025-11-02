@@ -1,4 +1,4 @@
-// Example: src/pages/student/StudentRegister.tsx
+// src/pages/student/StudentRegister.tsx
 import React, { useState } from "react";
 import {
   Box,
@@ -9,18 +9,48 @@ import {
   Link as MuiLink,
   Paper,
 } from "@mui/material";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import axios from "axios";
 
 export default function StudentRegister() {
+  const navigate = useNavigate();
   const [form, setForm] = useState({
     name: "",
     email: "",
     password: "",
     confirmPassword: "",
   });
+  const [message, setMessage] = useState("");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage("");
+
+    if (form.password !== form.confirmPassword) {
+      setMessage("❌ Passwords do not match.");
+      return;
+    }
+
+    try {
+      console.log("Submitting registration form...");
+      const res = await axios.post("http://localhost:3000/api/register", {
+        username: form.name,
+        email: form.email,
+        password: form.password,
+        user_type: "student",
+      });
+      console.log("Response:", res.data);
+
+      setMessage("✅ Account created successfully!");
+      setTimeout(() => navigate("/student/login"), 1500);
+    } catch (err: any) {
+      console.error("Error registering:", err);
+      setMessage("❌ Registration failed. Please try again.");
+    }
   };
 
   return (
@@ -52,7 +82,12 @@ export default function StudentRegister() {
             Create your account to start learning.
           </Typography>
 
-          <Box component="form" noValidate autoComplete="off">
+          <Box
+            component="form"
+            noValidate
+            autoComplete="off"
+            onSubmit={handleSubmit}
+          >
             <TextField
               fullWidth
               label="Full Name"
@@ -60,6 +95,7 @@ export default function StudentRegister() {
               value={form.name}
               onChange={handleChange}
               margin="normal"
+              required
             />
             <TextField
               fullWidth
@@ -68,6 +104,7 @@ export default function StudentRegister() {
               value={form.email}
               onChange={handleChange}
               margin="normal"
+              required
             />
             <TextField
               fullWidth
@@ -77,6 +114,7 @@ export default function StudentRegister() {
               value={form.password}
               onChange={handleChange}
               margin="normal"
+              required
             />
             <TextField
               fullWidth
@@ -86,10 +124,24 @@ export default function StudentRegister() {
               value={form.confirmPassword}
               onChange={handleChange}
               margin="normal"
+              required
             />
+
+            {message && (
+              <Typography
+                variant="body2"
+                color={
+                  message.startsWith("✅") ? "success.main" : "error.main"
+                }
+                mt={2}
+              >
+                {message}
+              </Typography>
+            )}
 
             <Button
               fullWidth
+              type="submit"
               variant="contained"
               color="primary"
               size="large"
