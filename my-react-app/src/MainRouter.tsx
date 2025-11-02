@@ -19,22 +19,22 @@ export default function MainRouter() {
   return (
     <Router>
       <Routes>
-        {/* Landing page has its own layout */}
+        {/* Landing page uses its own layout */}
         <Route path="/" element={<Landing />} />
 
-        {/* All other pages share the AppLayout */}
+        {/* All other pages share AppLayout */}
         <Route element={<AppLayout />}>
-            <Route path="student/login" element={<StudentLogin />} />
-            <Route path="student/register" element={<StudentRegister />} />
-            <Route path="student/dashboard" element={<StudentDashboard />} />
-            <Route path="student/forgot-password" element={<ForgotPassword />} />
-            <Route path="tutor/login" element={<TutorLogin />} />
-            <Route path="tutor/forgot-password" element={<TutorForgotPassword />} />
-            <Route path="tutor/setup" element={<TutorSetup />} />
-            <Route path="tutor/profile" element={<TutorProfile />} />
-            <Route path="tutor/dashboard" element={<TutorDashboard />} />
-            <Route path="session/:sessionId" element={<SessionRoom />} />
-            <Route path="whiteboard" element={<Whiteboard />} />
+          <Route path="student/login" element={<StudentLogin />} />
+          <Route path="student/register" element={<StudentRegister />} />
+          <Route path="student/dashboard" element={<StudentDashboard />} />
+          <Route path="student/forgot-password" element={<ForgotPassword />} />
+          <Route path="tutor/login" element={<TutorLogin />} />
+          <Route path="tutor/forgot-password" element={<TutorForgotPassword />} />
+          <Route path="tutor/setup" element={<TutorSetup />} />
+          <Route path="tutor/profile" element={<TutorProfile />} />
+          <Route path="tutor/dashboard" element={<TutorDashboard />} />
+          <Route path="session/:sessionId" element={<SessionRoom />} />
+          <Route path="whiteboard" element={<Whiteboard />} />
         </Route>
       </Routes>
     </Router>

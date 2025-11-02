@@ -1,76 +1,81 @@
-import React, { useCallback, useEffect } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
-import { Box, Container, AppBar, Toolbar, Typography, Avatar, Button } from "@mui/material";
-import { clearAllAuthStates, getActiveAuthState, markActiveUserType } from "./utils/authStorage";
+// src/AppLayout.tsx
+import React from "react";
+import { Box, AppBar, Toolbar, Typography, Button, Container } from "@mui/material";
+import { Outlet, Link } from "react-router-dom";
 
 export default function AppLayout() {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return () => undefined;
-    }
-
-    const handleUnload = () => {
-      const { user, userType } = getActiveAuthState();
-      if (user && userType) {
-        clearAllAuthStates();
-      }
-    };
-
-    window.addEventListener("beforeunload", handleUnload);
-    window.addEventListener("pagehide", handleUnload);
-
-    return () => {
-      window.removeEventListener("beforeunload", handleUnload);
-      window.removeEventListener("pagehide", handleUnload);
-    };
-  }, []);
-
-  const handleHomeNavigation = useCallback(() => {
-    const { user, userType } = getActiveAuthState();
-
-    if (user && userType === "student") {
-      markActiveUserType("student");
-      navigate("/student/dashboard");
-      return;
-    }
-
-    if (user && userType === "tutor") {
-      markActiveUserType("tutor");
-      navigate("/tutor/dashboard");
-      return;
-    }
-
-    navigate("/");
-  }, [navigate]);
-
   return (
     <Box
       sx={{
         minHeight: "100vh",
-        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        width: "100vw",
         display: "flex",
         flexDirection: "column",
+        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
       }}
     >
-      <AppBar position="static" elevation={0} color="transparent" sx={{ borderBottom: 1, borderColor: "divider" }}>
-        <Toolbar sx={{ justifyContent: "space-between" }}>
+      {/* Header */}
+      <AppBar
+        position="static"
+        elevation={0}
+        color="transparent"
+        sx={{
+          backdropFilter: "blur(6px)",
+          borderBottom: "1px solid rgba(0,0,0,0.1)",
+          py: 1,
+        }}
+      >
+        <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
           <Box display="flex" alignItems="center" gap={1}>
-            <Avatar sx={{ bgcolor: "primary.main" }}>MT</Avatar>
-            <Typography variant="h6" fontWeight="bold" color="text.primary">
+            <Box
+              sx={{
+                bgcolor: "primary.main",
+                color: "white",
+                borderRadius: "50%",
+                width: 32,
+                height: 32,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: "bold",
+                fontSize: 14,
+              }}
+            >
+              MT
+            </Box>
+            <Typography variant="h6" fontWeight="bold">
               MicroTutor
             </Typography>
           </Box>
-          <Button variant="outlined" color="primary" onClick={handleHomeNavigation}>
+          <Button component={Link} to="/" variant="outlined" size="small">
             Home
           </Button>
         </Toolbar>
       </AppBar>
 
-      <Container sx={{ py: 5, flex: 1 }}>
-        <Outlet />
-      </Container>
+      {/* Main content area */}
+      <Box
+        sx={{
+          flexGrow: 1,
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          px: 2,
+          py: 6,
+        }}
+      >
+        <Container
+          maxWidth={false}
+          sx={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            width: "100%",
+          }}
+        >
+          <Outlet /> {/* 👈 THIS is where your StudentLogin / Register / etc. will appear */}
+        </Container>
+      </Box>
     </Box>
   );
 }

@@ -1,120 +1,134 @@
-// my-react-app/src/pages/student/StudentLogin.tsx
+import React, { useState } from "react";
+import {
+  Box,
+  Paper,
+  TextField,
+  Button,
+  Typography,
+  Link as MuiLink,
+} from "@mui/material";
+import { Link, useNavigate } from "react-router-dom";
+import axios, { isAxiosError } from "axios";
 
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { storeAuthState, markActiveUserType } from '../../utils/authStorage';
+interface LoginResponse {
+  token: string;
+}
 
-const StudentLogin = () => {
-  const [formData, setFormData] = useState({
-    email: '',
-    password: ''
-  });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+export default function StudentLogin() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
   const navigate = useNavigate();
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError('');
-
     try {
-      const res = await axios.post('http://localhost:3000/api/login', formData);
-
-      if (res.data?.user && res.data?.token) {
-        storeAuthState('student', res.data.token, res.data.user);
-        markActiveUserType('student');
+      const res = await axios.post<LoginResponse>("/api/login", { email, password });
+      const token = res.data.token;
+      localStorage.setItem("token", token);
+      navigate("/student/dashboard");
+    } catch (err) {
+      if (isAxiosError(err)) {
+        setError(err.response?.data?.message || "Login failed.");
+      } else {
+        setError("An unexpected error occurred.");
       }
-      navigate('/student/dashboard');
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Login failed');
-    } finally {
-      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4">
-      <div className="card max-w-md w-full p-8">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Student Login</h1>
-          <p className="text-gray-600">Welcome back! Sign in to continue learning.</p>
-        </div>
+    <Box
+      sx={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        minHeight: "calc(100vh - 80px)", // subtract header height
+        px: 2,
+      }}
+    >
+      <Paper
+        elevation={8}
+        sx={{
+          p: 5,
+          borderRadius: 4,
+          width: "100%",
+          maxWidth: 420,
+          textAlign: "center",
+        }}
+      >
+        <Typography variant="h5" fontWeight="bold" gutterBottom>
+          Student Login
+        </Typography>
+        <Typography variant="body2" color="text.secondary" mb={3}>
+          Welcome back! Sign in to continue learning.
+        </Typography>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Email Address
-            </label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              className="input"
-              placeholder="Enter your email"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Password
-            </label>
-            <input
-              type="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              className="input"
-              placeholder="Enter your password"
-              required
-            />
-          </div>
+        <Box component="form" onSubmit={handleLogin}>
+          <TextField
+            fullWidth
+            margin="normal"
+            label="Email Address"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <TextField
+            fullWidth
+            margin="normal"
+            label="Password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
+            <Typography color="error" variant="body2" mt={1}>
               {error}
-            </div>
+            </Typography>
           )}
 
-          <button
+          <Button
+            fullWidth
+            variant="contained"
+            color="primary"
             type="submit"
-            disabled={loading}
-            className="btn btn-primary w-full"
+            sx={{ mt: 3, mb: 2 }}
           >
-            {loading ? 'Signing In...' : 'Sign In'}
-          </button>
-        </form>
+            Sign In
+          </Button>
+        </Box>
 
-        <div className="mt-6 text-center space-y-2">
-          <Link to="/student/forgot-password" className="text-sm text-blue-600 hover:underline">
-            Forgot your password?
-          </Link>
-          <p className="text-sm text-gray-600">
-            Don't have an account?{' '}
-            <Link to="/student/register" className="text-blue-600 hover:underline">
-              Sign up here
-            </Link>
-          </p>
-        </div>
+        <MuiLink
+          component={Link}
+          to="/student/forgot-password"
+          underline="hover"
+          color="primary"
+          display="block"
+          mb={2}
+        >
+          Forgot your password?
+        </MuiLink>
 
-        <div className="mt-6 text-center">
-          <Link to="/" className="text-sm text-gray-500 hover:underline">
-            ← Back to Home
-          </Link>
-        </div>
-      </div>
-    </div>
+        <Typography variant="body2" color="text.secondary">
+          Don’t have an account?{" "}
+          <MuiLink component={Link} to="/student/register" underline="hover" color="primary">
+            Sign up here
+          </MuiLink>
+        </Typography>
+
+        <MuiLink
+          component={Link}
+          to="/"
+          underline="hover"
+          color="primary"
+          display="block"
+          mt={2}
+        >
+          ← Back to Home
+        </MuiLink>
+      </Paper>
+    </Box>
   );
-};
-
-export default StudentLogin;
+}
