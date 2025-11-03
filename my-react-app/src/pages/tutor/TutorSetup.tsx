@@ -1,98 +1,85 @@
 // src/pages/tutor/TutorSetup.tsx
 import React, { useState } from "react";
-import Autocomplete from "@mui/material/Autocomplete";
 import {
   Box,
-  Paper,
+  Typography,
   TextField,
   Button,
-  Typography,
-  Chip,
+  Paper,
   Link as MuiLink,
+  Chip,
+  Autocomplete,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 
+axios.defaults.withCredentials = true;
+
+// ✅ Predefined list of specialties tutors can choose from
+const specialtiesList = [
+  "Java", "Python", "JavaScript", "C++", "Data Structures", "Algorithms", "Web Development", "Machine Learning",
+  "Calculus", "Linear Algebra", "Statistics", "Probability", "Discrete Math", "Geometry",
+  "Mechanics", "Thermodynamics", "Electromagnetism", "Quantum Physics", "Optics",
+  "Organic Chemistry", "Inorganic Chemistry", "Physical Chemistry", "Biochemistry"
+];
+
 export default function TutorSetup() {
-  const [formData, setFormData] = useState({
+  const navigate = useNavigate();
+  const [form, setForm] = useState({
     fullName: "",
     email: "",
     password: "",
     confirmPassword: "",
     education: "",
     specialties: [] as string[],
-    ratePer10Min: "",
+    rate: "",
   });
   const [error, setError] = useState("");
-  const navigate = useNavigate();
-
-  // List of selectable specialties
-  const availableSpecialties = [
-    "Math",
-    "Physics",
-    "Biology",
-    "Chemistry",
-    "English",
-    "History",
-    "Computer Science",
-    "Economics",
-    "Writing",
-    "Test Prep",
-  ];
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleSpecialtyToggle = (specialty: string) => {
-    setFormData((prev) => {
-      const alreadySelected = prev.specialties.includes(specialty);
-      return {
-        ...prev,
-        specialties: alreadySelected
-          ? prev.specialties.filter((s) => s !== specialty)
-          : [...prev.specialties, specialty],
-      };
-    });
+    setForm({ ...form, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (formData.password !== formData.confirmPassword) {
+    if (form.password !== form.confirmPassword) {
       setError("Passwords do not match");
       return;
     }
 
     try {
-      const res = await axios.post("/api/register", {
-        name: formData.fullName,
-        email: formData.email,
-        password: formData.password,
+      await axios.post("http://localhost:3000/api/register", {
+        username: form.fullName,
+        email: form.email,
+        password: form.password,
         user_type: "tutor",
-        education: formData.education,
-        specialties: formData.specialties.join(", "),
-        rate_per_10_min: formData.ratePer10Min,
+        education: form.education,
+        specialties: form.specialties.join(", "),
+        rate_per_10_min: form.rate,
       });
 
-      if (res.status === 200 || res.status === 201) {
-        navigate("/tutor/dashboard");
-      }
+      navigate("/tutor/login");
     } catch (err: any) {
-      console.error(err);
-      setError("Server error. Please try again.");
+      console.error("Registration failed:", err);
+      setError(
+        err.response?.data?.message ||
+          "Registration failed. Please try again."
+      );
     }
   };
 
   return (
     <Box
       sx={{
-        width: "100%",
+        minHeight: "100vh",
+        width: "100vw",
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        py: 8,
+        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        p: 2,
       }}
     >
       <Paper
@@ -100,152 +87,139 @@ export default function TutorSetup() {
         sx={{
           p: 6,
           borderRadius: 4,
+          textAlign: "center",
           width: "100%",
           maxWidth: 500,
-          textAlign: "center",
-          boxShadow: 4,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
         }}
       >
         <Typography variant="h4" fontWeight="bold" gutterBottom>
           Tutor Registration
         </Typography>
-        <Typography color="text.secondary" mb={4}>
+        <Typography variant="body1" color="text.secondary" mb={3}>
           Create your tutor account and start sharing your expertise.
         </Typography>
 
-        <Box component="form" onSubmit={handleSubmit} textAlign="left">
+        <Box component="form" onSubmit={handleSubmit}>
           <TextField
             fullWidth
-            margin="normal"
             label="Full Name"
             name="fullName"
-            value={formData.fullName}
+            value={form.fullName}
             onChange={handleChange}
+            margin="normal"
             required
           />
           <TextField
             fullWidth
-            margin="normal"
             label="Email Address"
             name="email"
-            type="email"
-            value={formData.email}
+            value={form.email}
             onChange={handleChange}
+            margin="normal"
             required
           />
           <TextField
             fullWidth
-            margin="normal"
             label="Password"
             name="password"
             type="password"
-            value={formData.password}
+            value={form.password}
             onChange={handleChange}
+            margin="normal"
             required
           />
           <TextField
             fullWidth
-            margin="normal"
             label="Confirm Password"
             name="confirmPassword"
             type="password"
-            value={formData.confirmPassword}
+            value={form.confirmPassword}
             onChange={handleChange}
+            margin="normal"
             required
           />
-
-          {/* Education */}
           <TextField
             fullWidth
-            margin="normal"
             label="Education Background"
             name="education"
-            value={formData.education}
+            value={form.education}
             onChange={handleChange}
+            margin="normal"
           />
 
-          {/* ---------- Specialties Selector ---------- */}
-          <Box mt={3}>
-            <Typography fontWeight="medium" mb={1}>
-              Specialties
-            </Typography>
-            <Autocomplete
-              multiple
-              freeSolo
-              options={[
-                "Math",
-                "Physics",
-                "Biology",
-                "Chemistry",
-                "English",
-                "History",
-                "Computer Science",
-                "Economics",
-                "Writing",
-                "Test Prep",
-              ]}
-              value={formData.specialties}
-              onChange={(_, newValue) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  specialties: newValue,
-                }))
-              }
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Enter or select specialties"
-                  placeholder="e.g. Algebra, Biology, Essay Writing"
-                  fullWidth
+          {/* ✅ Autocomplete with search + multiple selections */}
+          <Autocomplete
+            multiple
+            freeSolo // allows tutors to type custom specialties
+            options={specialtiesList}
+            value={form.specialties}
+            onChange={(event, newValue) => {
+              setForm({ ...form, specialties: newValue });
+            }}
+            renderTags={(value: readonly string[], getTagProps) =>
+              value.map((option: string, index: number) => (
+                <Chip
+                  variant="outlined"
+                  color="primary"
+                  label={option}
+                  {...getTagProps({ index })}
+                  key={option}
                 />
-                )}
-                sx={{
-                  mb: 2,
-                  backgroundColor: "white",
-                  borderRadius: 1,
-                }}
+              ))
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Specialties"
+                placeholder="Select or type specialties..."
+                margin="normal"
               />
-            </Box>
-
-          {/* Rate per 10 minutes */}
+            )}
+            sx={{ mt: 1, mb: 2 }}
+          />
 
           <TextField
             fullWidth
-            margin="normal"
             label="Rate per 10 minutes ($)"
-            name="ratePer10Min"
+            name="rate"
             type="number"
-            value={formData.ratePer10Min}
+            value={form.rate}
             onChange={handleChange}
+            margin="normal"
           />
-
-          {error && (
-            <Typography color="error" variant="body2" mt={1}>
-              {error}
-            </Typography>
-          )}
 
           <Button
             fullWidth
+            type="submit"
             variant="contained"
             color="success"
             size="large"
-            sx={{ mt: 3, mb: 2 }}
-            type="submit"
+            sx={{ mt: 3 }}
           >
             Create Account
           </Button>
+
+          {error && (
+            <Typography color="error" mt={2}>
+              {error}
+            </Typography>
+          )}
         </Box>
 
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="body2" mt={3}>
           Already have an account?{" "}
           <MuiLink component={Link} to="/tutor/login">
             Sign in here
           </MuiLink>
         </Typography>
-        <MuiLink component={Link} to="/" underline="none" sx={{ display: "block", mt: 2 }}>
-          ← Back to Home
-        </MuiLink>
+
+        <Typography variant="body2" mt={1}>
+          ←{" "}
+          <MuiLink component={Link} to="/" underline="hover">
+            Back to Home
+          </MuiLink>
+        </Typography>
       </Paper>
     </Box>
   );

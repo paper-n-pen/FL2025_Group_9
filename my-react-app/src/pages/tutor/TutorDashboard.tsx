@@ -1,10 +1,23 @@
-// my-react-app/src/pages/tutor/TutorDashboard.tsx
-
-import _React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { getAuthStateForType, markActiveUserType, clearAuthState } from '../../utils/authStorage';
-import { getSocket, SOCKET_ENDPOINT } from '../../socket';
+// src/pages/tutor/TutorDashboard.tsx
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import {
+  Box,
+  Container,
+  Grid,
+  Card,
+  CardHeader,
+  CardContent,
+  Typography,
+  Button,
+  Avatar,
+  Stack,
+  Divider,
+  Chip,
+} from "@mui/material";
+import { getAuthStateForType, markActiveUserType, clearAuthState } from "../../utils/authStorage";
+import { getSocket, SOCKET_ENDPOINT } from "../../socket";
 
 const socket = getSocket();
 
@@ -22,405 +35,366 @@ interface StudentQuery {
   sessionStatus?: string | null;
 }
 
-const TutorDashboard = () => {
+export default function TutorDashboard() {
   const [queries, setQueries] = useState<StudentQuery[]>([]);
   const [acceptedQueries, setAcceptedQueries] = useState<StudentQuery[]>([]);
-  const [_loading, _setLoading] = useState(false);
-  const [notifications, setNotifications] = useState<any[]>([]);
   const declinedQueryIdsRef = useRef<Set<string>>(new Set());
   const [tutorUser, setTutorUser] = useState<any>(() => {
-    const stored = getAuthStateForType('tutor');
+    const stored = getAuthStateForType("tutor");
     return stored.user;
   });
   const navigate = useNavigate();
 
+  // ✅ Fetch accepted queries
   const fetchAcceptedQueries = useCallback(async () => {
     try {
       if (!tutorUser?.id) {
         setAcceptedQueries([]);
         return;
       }
-
-  const response = await axios.get(`${SOCKET_ENDPOINT}/api/queries/tutor/${tutorUser.id}/accepted-queries`);
+      const response = await axios.get(
+        `${SOCKET_ENDPOINT}/api/queries/tutor/${tutorUser.id}/accepted-queries`
+      );
       setAcceptedQueries(response.data || []);
     } catch (error) {
-      console.error('Error fetching accepted queries:', error);
+      console.error("Error fetching accepted queries:", error);
     }
   }, [tutorUser?.id]);
 
-  // Check authentication
+  // ✅ Auth check
   useEffect(() => {
-    const stored = getAuthStateForType('tutor');
-    if (!stored.user) {
-      navigate('/tutor/setup');
-      return;
-    }
-
-    markActiveUserType('tutor');
-    setTutorUser(stored.user);
+    const fetchTutor = async () => {
+      try {
+        const res = await axios.get("http://localhost:3000/api/me", {
+          withCredentials: true,
+        });
+        const u = res.data.user;
+        if (u?.userType === "tutor") {
+          setTutorUser(u);
+          markActiveUserType("tutor");
+        } else {
+          navigate("/tutor/login", { replace: true });
+        }
+      } catch {
+        navigate("/tutor/login", { replace: true });
+      }
+    };
+    fetchTutor();
   }, [navigate]);
 
-  // Socket.IO for real-time notifications
+  // ✅ Socket setup
   useEffect(() => {
-    if (tutorUser?.id) {
-      socket.emit('join-tutor-room', tutorUser.id);
-    }
+    if (tutorUser?.id) socket.emit("join-tutor-room", tutorUser.id);
 
     const newQueryHandler = (query: any) => {
-      setNotifications((prev: any[]) => [...prev, {
-        id: Date.now(),
-        type: 'new-query',
-        message: `New query in ${query.subject}: ${query.subtopic}`,
-        query
-      }]);
+      console.log("New query received:", query);
     };
 
-    socket.on('new-query', newQueryHandler);
+    socket.on("new-query", newQueryHandler);
 
     return () => {
-      if (tutorUser?.id) {
-        socket.emit('leave-tutor-room', tutorUser.id);
-      }
-      socket.off('new-query', newQueryHandler);
+      if (tutorUser?.id) socket.emit("leave-tutor-room", tutorUser.id);
+      socket.off("new-query", newQueryHandler);
     };
   }, [tutorUser?.id]);
 
-  // Fetch queries from backend
+  // ✅ Fetch available queries
   useEffect(() => {
     const fetchQueries = async () => {
       try {
-        if (!tutorUser?.id) {
-          return;
-        }
-
-  const response = await axios.get(`${SOCKET_ENDPOINT}/api/queries/tutor/${tutorUser.id}`);
-        const filtered = (response.data || []).filter((item: StudentQuery) => !declinedQueryIdsRef.current.has(item.id));
+        if (!tutorUser?.id) return;
+        const response = await axios.get(`${SOCKET_ENDPOINT}/api/queries/tutor/${tutorUser.id}`);
+        const filtered = (response.data || []).filter(
+          (item: StudentQuery) => !declinedQueryIdsRef.current.has(item.id)
+        );
         setQueries(filtered);
       } catch (error) {
-        console.error('Error fetching queries:', error);
+        console.error("Error fetching queries:", error);
       }
     };
-
     fetchQueries();
-    const interval = setInterval(fetchQueries, 5000); // Refresh every 5 seconds
+    const interval = setInterval(fetchQueries, 5000);
     return () => clearInterval(interval);
   }, [tutorUser?.id]);
 
+  // ✅ Periodic accepted query refresh
   useEffect(() => {
-    if (!tutorUser?.id) {
-      setAcceptedQueries([]);
-      return;
-    }
-
+    if (!tutorUser?.id) return;
     fetchAcceptedQueries();
     const interval = setInterval(fetchAcceptedQueries, 5000);
     return () => clearInterval(interval);
   }, [tutorUser?.id, fetchAcceptedQueries]);
 
-  useEffect(() => {
-    const sessionEndedHandler = (payload: any) => {
-      if (!payload) {
-        return;
-      }
-
-      if (payload.tutorId && tutorUser?.id && payload.tutorId.toString() !== tutorUser.id.toString()) {
-        return;
-      }
-
-      setAcceptedQueries((prev: StudentQuery[]) =>
-        prev.filter((item: StudentQuery) => {
-          if (payload.queryId && item.id === payload.queryId) {
-            return false;
-          }
-
-          if (payload.sessionId && item.sessionId && item.sessionId === payload.sessionId) {
-            return false;
-          }
-
-          return true;
-        })
-      );
-
-      fetchAcceptedQueries();
-    };
-
-    socket.on('session-ended', sessionEndedHandler);
-
-    return () => {
-      socket.off('session-ended', sessionEndedHandler);
-    };
-  }, [fetchAcceptedQueries, tutorUser?.id]);
-
+  // ✅ Query handlers
   const handleAcceptQuery = async (queryId: string) => {
     try {
       if (!tutorUser?.id) {
-        navigate('/tutor/login');
+        navigate("/tutor/login");
         return;
       }
-
-  const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/accept`, {
+      const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/accept`, {
         queryId,
-        tutorId: tutorUser.id.toString()
+        tutorId: tutorUser.id.toString(),
       });
-
-      if (response.data.message === 'Query accepted successfully') {
+      if (response.data.message === "Query accepted successfully") {
         declinedQueryIdsRef.current.delete(queryId);
-
-        setQueries((prev: StudentQuery[]) => prev.filter((q) => q.id !== queryId));
-
+        setQueries((prev) => prev.filter((q) => q.id !== queryId));
         await fetchAcceptedQueries();
       }
     } catch (error: any) {
-      console.error('Error accepting query:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to accept query. Please try again.';
-      alert(errorMessage);
+      console.error("Error accepting query:", error);
+      alert("Failed to accept query. Please try again.");
     }
   };
 
   const handleDeclineQuery = async (queryId: string) => {
     try {
-      if (!tutorUser?.id) {
-        navigate('/tutor/login');
-        return;
-      }
-
-  await axios.post(`${SOCKET_ENDPOINT}/api/queries/decline`, {
+      if (!tutorUser?.id) return;
+      await axios.post(`${SOCKET_ENDPOINT}/api/queries/decline`, {
         queryId,
-        tutorId: tutorUser.id
+        tutorId: tutorUser.id,
       });
-
       declinedQueryIdsRef.current.add(queryId);
-      setQueries((prev: StudentQuery[]) => prev.filter((q) => q.id !== queryId));
+      setQueries((prev) => prev.filter((q) => q.id !== queryId));
     } catch (error: any) {
-      console.error('Error declining query:', error);
-      const message = error.response?.data?.message || error.message || 'Failed to decline query. Please try again.';
-      alert(message);
+      console.error("Error declining query:", error);
+      alert("Failed to decline query. Please try again.");
     }
   };
 
   const handleStartSession = async (query: StudentQuery) => {
     try {
-  const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/session`, {
+      const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/session`, {
         queryId: query.id,
         tutorId: tutorUser.id,
-        studentId: query.studentId
+        studentId: query.studentId,
       });
-
       const sessionId = response.data.sessionId;
-      if (sessionId) {
-        setAcceptedQueries((prev: StudentQuery[]) =>
-          prev.map((item: StudentQuery) =>
-            item.id === query.id ? { ...item, sessionId } : item
-          )
-        );
-        fetchAcceptedQueries();
-        navigate(`/session/${sessionId}`);
-      }
+      if (sessionId) navigate(`/session/${sessionId}`);
     } catch (error: any) {
-      console.error('Error starting session:', error);
-      const message = error.response?.data?.message || error.message || 'Failed to start session. Please try again.';
-      alert(message);
+      console.error("Error starting session:", error);
+      alert("Failed to start session. Please try again.");
     }
   };
 
   const handleLogout = () => {
-    const tutorId = tutorUser?.id;
-    if (tutorId) {
-      socket.emit('leave-tutor-room', tutorId);
-    }
-    declinedQueryIdsRef.current.clear();
-    clearAuthState('tutor');
+    if (tutorUser?.id) socket.emit("leave-tutor-room", tutorUser.id);
+    clearAuthState("tutor");
     setTutorUser(null);
-    navigate('/');
+    navigate("/");
   };
 
+  // ✅ UI
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">MT</span>
-              </div>
-              <span className="text-xl font-semibold text-gray-900">MicroTutor</span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => navigate('/tutor/profile')}
-                className="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-              >
-                Profile
-              </button>
-              <button onClick={handleLogout} className="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Notifications */}
-        {notifications.length > 0 && (
-          <div className="fixed top-4 right-4 z-50 space-y-2">
-            {notifications.map((notification) => (
-              <div key={notification.id} className="bg-blue-500 text-white p-4 rounded-lg shadow-lg max-w-sm">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-medium">{notification.message}</p>
-                    {notification.query && (
-                      <p className="text-sm opacity-90 mt-1">
-                        Student: {notification.query.studentName}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => setNotifications(prev => prev.filter(n => n.id !== notification.id))}
-                    className="text-white hover:text-gray-200 ml-2"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
+    <Box
+      sx={{
+        minHeight: "100vh",
+        width: "100vw",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "flex-start",
+        alignItems: "center",
+        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        py: 6,
+      }}
+    >
+      <Container
+        maxWidth={false}
+        disableGutters
+        sx={{
+          flexGrow: 1,
+          px: { xs: 2, md: 8 },
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "stretch",
+        }}
+      >
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Tutor Dashboard</h1>
-          <p className="text-gray-600">Help students with their questions</p>
-        </div>
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          mb={4}
+        >
+          <Box>
+            <Typography variant="h4" fontWeight={800}>
+              Tutor Dashboard
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              View student questions and manage tutoring sessions
+            </Typography>
+          </Box>
 
-        <div className="grid lg:grid-cols-2 gap-6">
-          {/* New Queries */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">New Student Queries</h2>
-              <p className="text-sm text-gray-500">Accept queries to help students</p>
-            </div>
-            <div className="p-6">
-              {queries.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                    </svg>
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No new queries</h3>
-                  <p className="text-gray-500">Students will appear here when they need help</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {queries.map((query) => (
-                    <div key={query.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                              {query.subject}
-                            </span>
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                              {query.subtopic}
-                            </span>
-                          </div>
-                          <h3 className="text-sm font-medium text-gray-900 mb-1">
-                            {query.studentName}
-                          </h3>
-                          <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-                            {query.query}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {new Date(query.timestamp).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex space-x-2 mt-4">
-                        <button
-                          onClick={() => handleAcceptQuery(query.id)}
-                          className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
-                        >
-                          Accept
-                        </button>
-                        <button
-                          onClick={() => handleDeclineQuery(query.id)}
-                          className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-300 transition-colors"
-                        >
-                          Decline
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              onClick={() => navigate("/tutor/profile")}
+              sx={{ borderRadius: 2, fontWeight: 600, textTransform: "none", px: 3 }}
+            >
+              Profile
+            </Button>
 
-          {/* Accepted Queries */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Accepted Queries</h2>
-              <p className="text-sm text-gray-500">Queries you've accepted</p>
-            </div>
-            <div className="p-6">
-              {acceptedQueries.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No accepted queries</h3>
-                  <p className="text-gray-500">Accepted queries will appear here</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {acceptedQueries.map((query) => (
-                    <div key={query.id} className="border border-gray-200 rounded-lg p-4 bg-green-50">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2 mb-2">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                              {query.subject}
-                            </span>
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                              {query.subtopic}
-                            </span>
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                              Accepted
-                            </span>
-                          </div>
-                          <h3 className="text-sm font-medium text-gray-900 mb-1">
-                            {query.studentName}
-                          </h3>
-                          <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-                            {query.query}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {new Date(query.timestamp).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-4">
-                        <button
-                          onClick={() => handleStartSession(query)}
-                          className="w-full bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 transition-colors"
-                        >
-                          Start Session
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+            <Button
+              variant="outlined"
+              color="error"
+              onClick={handleLogout}
+              sx={{ borderRadius: 2, fontWeight: 600, textTransform: "none", px: 3 }}
+            >
+              Logout
+            </Button>
+          </Stack>
+
+        </Stack>
+
+        {/* Grid */}
+        <Grid container spacing={3} justifyContent="center" alignItems="flex-start">
+          {/* --- New Queries --- */}
+          <Grid item xs={12} md={6}>
+            <Card elevation={4} sx={{ borderRadius: 3 }}>
+              <CardHeader
+                title="New Student Queries"
+                subheader="Accept queries from students seeking help"
+              />
+              <Divider />
+              <CardContent>
+                {queries.length === 0 ? (
+                  <Box
+                    sx={{
+                      py: 6,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      textAlign: "center",
+                      gap: 1.5,
+                    }}
+                  >
+                    <Avatar
+                      sx={{ bgcolor: "grey.100", color: "grey.500", width: 56, height: 56 }}
+                    >
+                      <svg width="28" height="28" viewBox="0 0 24 24">
+                        <path
+                          fill="currentColor"
+                          d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5m0 2c-4 0-8 2-8 6h16c0-4-4-6-8-6Z"
+                        />
+                      </svg>
+                    </Avatar>
+                    <Typography variant="h6">No new queries</Typography>
+                    <Typography color="text.secondary">
+                      Student questions will appear here
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Stack spacing={2}>
+                    {queries.map((q) => (
+                      <Card key={q.id} variant="outlined" sx={{ borderRadius: 2 }}>
+                        <CardContent>
+                          <Stack spacing={0.5}>
+                            <Typography variant="h6">{q.studentName}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {q.subject} • {q.subtopic}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {q.query}
+                            </Typography>
+                            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                              <Button
+                                variant="contained"
+                                color="success"
+                                onClick={() => handleAcceptQuery(q.id)}
+                              >
+                                Accept
+                              </Button>
+                              <Button
+                                variant="outlined"
+                                color="error"
+                                onClick={() => handleDeclineQuery(q.id)}
+                              >
+                                Decline
+                              </Button>
+                            </Stack>
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </Stack>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* --- Accepted Queries --- */}
+          <Grid item xs={12} md={6}>
+            <Card elevation={4} sx={{ borderRadius: 3 }}>
+              <CardHeader
+                title="Accepted Queries"
+                subheader="Students you’ve agreed to help"
+              />
+              <Divider />
+              <CardContent>
+                {acceptedQueries.length === 0 ? (
+                  <Box
+                    sx={{
+                      py: 6,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      textAlign: "center",
+                      gap: 1.5,
+                    }}
+                  >
+                    <Avatar
+                      sx={{ bgcolor: "grey.100", color: "grey.500", width: 56, height: 56 }}
+                    >
+                      <svg width="28" height="28" viewBox="0 0 24 24">
+                        <path
+                          fill="currentColor"
+                          d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5m0 2c-4 0-8 2-8 6h16c0-4-4-6-8-6Z"
+                        />
+                      </svg>
+                    </Avatar>
+                    <Typography variant="h6">No accepted queries</Typography>
+                    <Typography color="text.secondary">
+                      Accepted queries will appear here
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Stack spacing={2}>
+                    {acceptedQueries.map((q) => (
+                      <Card
+                        key={q.id}
+                        variant="outlined"
+                        sx={{ borderRadius: 2, backgroundColor: "success.50" }}
+                      >
+                        <CardContent>
+                          <Stack spacing={0.5}>
+                            <Typography variant="h6">{q.studentName}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {q.subject} • {q.subtopic}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {q.query}
+                            </Typography>
+                            <Button
+                              fullWidth
+                              variant="contained"
+                              color="success"
+                              sx={{ mt: 2 }}
+                              onClick={() => handleStartSession(q)}
+                            >
+                              Start Session
+                            </Button>
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </Stack>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      </Container>
+    </Box>
   );
-};
-
-export default TutorDashboard;
+}

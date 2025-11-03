@@ -4,21 +4,19 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const { Server } = require("socket.io");
 const http = require("http");
-require("dotenv").config(); // ✅ loads JWT_SECRET, etc.
+require("dotenv").config();
 
 const { pool } = require("./db");
-const authRoutes = require("./routes/auth");
-const loginRoutes = require("./routes/login");
+const authRoutes = require("./routes/auth"); // ✅ handles /register, /login, /me, /logout
 const { router: queriesRoutes, setIO } = require("./routes/queries");
 const passwordResetRoutes = require("./routes/passwordReset");
 
-// ✅ Initialize app FIRST
 const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173", // ✅ restrict origin
+    origin: "http://localhost:5173",
     credentials: true,
     methods: ["GET", "POST"],
   },
@@ -32,17 +30,17 @@ app.use(express.json());
 app.use(
   cors({
     origin: "http://localhost:5173",
-    credentials: true, // ✅ required for cookies
+    credentials: true,
   })
 );
 
-// Request logger
-app.use((req, res, next) => {
-  console.log(`Request received for: ${req.method} ${req.originalUrl}`);
+// --- Log Requests ---
+app.use((req, _res, next) => {
+  console.log(`[${req.method}] ${req.originalUrl}`);
   next();
 });
 
-// --- Database Connection Test ---
+// --- Test DB Connection ---
 (async () => {
   try {
     const client = await pool.connect();
@@ -53,49 +51,47 @@ app.use((req, res, next) => {
   }
 })();
 
-// --- Basic route ---
-app.get("/", (req, res) => {
-  res.json({
-    message: "MicroTutor API Server Running",
-    status: "success",
-    features: ["Authentication", "Whiteboard", "Real-time Chat", "Session Management"],
-  });
+// --- Health Check ---
+app.get("/", (_req, res) => {
+  res.json({ message: "MicroTutor API is running." });
 });
 
-// --- API Routes ---
+// --- Routes ---
 app.use("/api", authRoutes);
-app.use("/api", loginRoutes);
 app.use("/api/queries", queriesRoutes);
 app.use("/api/auth", passwordResetRoutes);
 
-// ✅ Attach Socket.IO instance to queries route
+// --- Attach Socket.IO ---
 setIO(io);
 
-// --- Socket.IO setup ---
+// --- Socket.IO Logic ---
 io.on("connection", (socket) => {
-  console.log("a user connected");
+  console.log("Client connected:", socket.id);
 
   socket.on("join-session", (sessionId) => {
-    socket.join(`session-${sessionId}`);
-    console.log(`User joined session ${sessionId}`);
+    if (!sessionId) return;
+    socket.join(sessionId);
+    console.log(`User ${socket.id} joined session ${sessionId}`);
   });
 
   socket.on("leave-session", (sessionId) => {
-    socket.leave(`session-${sessionId}`);
-    console.log(`User left session ${sessionId}`);
+    socket.leave(sessionId);
+    console.log(`User ${socket.id} left session ${sessionId}`);
   });
 
   socket.on("session-message", (data) => {
     console.log("Session message:", data);
-    socket.to(`session-${data.sessionId}`).emit("session-message", data.message);
+    io.to(data.sessionId).emit("session-message", data.message);
   });
 
-  socket.on("disconnect", () => {
-    console.log("user disconnected");
+  socket.on("whiteboard-draw", (data) => {
+    // forward to everyone except sender
+    socket.to(data.sessionId).emit("whiteboard-draw", data);
   });
 });
 
-// --- Start the server ---
+
+// --- Start Server ---
 server.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
 });

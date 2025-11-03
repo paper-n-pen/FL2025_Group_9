@@ -1,42 +1,40 @@
 // src/MainRouter.tsx
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import React, { Suspense, lazy } from "react";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import ErrorBoundary from "./components/ErrorBoundary";
 import AppLayout from "./AppLayout";
 
-import Landing from "./pages/Landing";
-import StudentLogin from "./pages/student/StudentLogin";
-import StudentRegister from "./pages/student/StudentRegister";
-import ForgotPassword from "./pages/student/ForgotPassword";
-import StudentDashboard from "./pages/student/StudentDashboard";
-import TutorLogin from "./pages/tutor/TutorLogin";
-import TutorForgotPassword from "./pages/tutor/TutorForgotPassword";
-import TutorSetup from "./pages/tutor/TutorSetup";
-import TutorProfile from "./pages/tutor/TutorProfile";
-import TutorDashboard from "./pages/tutor/TutorDashboard";
-import SessionRoom from "./pages/SessionRoom";
-import Whiteboard from "./Whiteboard";
+const Landing         = lazy(() => import("./pages/Landing"));
+const StudentLogin    = lazy(() => import("./pages/student/StudentLogin"));
+const TutorLogin      = lazy(() => import("./pages/tutor/TutorLogin"));
+const StudentDashboard= lazy(() => import("./pages/student/StudentDashboard"));
+const TutorDashboard  = lazy(() => import("./pages/tutor/TutorDashboard"));
+const TutorProfile    = lazy(() => import("./pages/tutor/TutorProfile"));
+const SessionRoom     = lazy(() => import("./pages/SessionRoom"));
 
 export default function MainRouter() {
   return (
-    <Router>
-      <Routes>
-        {/* Public (NO AppLayout) */}
-        <Route path="/" element={<Landing />} />
-        <Route path="/student/login" element={<StudentLogin />} />
-        <Route path="/student/register" element={<StudentRegister />} />
-        <Route path="/student/forgot-password" element={<ForgotPassword />} />
-        <Route path="/tutor/login" element={<TutorLogin />} />
-        <Route path="/tutor/forgot-password" element={<TutorForgotPassword />} />
+    <BrowserRouter>
+      <ErrorBoundary>
+        <Suspense fallback={null}>
+          <Routes>
+            {/* Public */}
+            <Route path="/" element={<Landing />} />
+            <Route path="/student/login" element={<StudentLogin />} />
+            <Route path="/tutor/login" element={<TutorLogin />} />
 
-        {/* Protected (WITH AppLayout) */}
-        <Route element={<AppLayout />}>
-          <Route path="student/dashboard" element={<StudentDashboard />} />
-          <Route path="tutor/setup" element={<TutorSetup />} />
-          <Route path="tutor/profile" element={<TutorProfile />} />
-          <Route path="tutor/dashboard" element={<TutorDashboard />} />
-          <Route path="session/:sessionId" element={<SessionRoom />} />
-          <Route path="whiteboard" element={<Whiteboard />} />
-        </Route>
-      </Routes>
-    </Router>
+            {/* Protected under AppLayout */}
+            <Route element={<AppLayout />}>
+              <Route path="/student/dashboard" element={<StudentDashboard />} />
+              <Route path="/tutor/dashboard" element={<TutorDashboard />} />
+              <Route path="/tutor/profile" element={<TutorProfile />} />
+              <Route path="/session/:sessionId" element={<SessionRoom />} />
+            </Route>
+
+            <Route path="*" element={<Landing />} />
+          </Routes>
+        </Suspense>
+      </ErrorBoundary>
+    </BrowserRouter>
   );
 }

@@ -9,32 +9,95 @@ const isProd = process.env.NODE_ENV === "production";
 
 // --- REGISTER ---
 router.post("/register", async (req, res) => {
-  const { username, email, password, user_type } = req.body;
+  const {
+    username,
+    email,
+    password,
+    user_type,
+    education,
+    specialties,
+    rate,
+    rate_per_10_min,
+  } = req.body;
 
   if (!username || !email || !password) {
-    return res.status(400).json({ message: "username, email, and password are required" });
+    return res
+      .status(400)
+      .json({ message: "username, email, and password are required" });
   }
 
   try {
-    const existingUser = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
+    // Check if user already exists
+    const existingUser = await pool.query(
+      "SELECT * FROM users WHERE email = $1",
+      [email]
+    );
     if (existingUser.rows.length > 0) {
       return res.status(400).json({ message: "User already exists." });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Normalize specialties: ensure array format
+    let parsedSpecialties = [];
+    if (Array.isArray(specialties)) {
+      parsedSpecialties = specialties;
+    } else if (typeof specialties === "string" && specialties.trim() !== "") {
+      parsedSpecialties = specialties
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+
+    // Normalize rate
+    const rateValue = Number(rate_per_10_min || rate || 0);
+
+    // --- Tutor registration ---
+    if (user_type === "tutor") {
+      const result = await pool.query(
+        `
+        INSERT INTO users
+          (username, email, password_hash, user_type, education, specialties, rate_per_10_min)
+        VALUES ($1, $2, $3, $4, $5, $6::text[], $7)
+        RETURNING id, username, email, user_type, education, specialties, rate_per_10_min
+        `,
+        [
+          username,
+          email,
+          hashedPassword,
+          "tutor",
+          education || "",
+          parsedSpecialties,
+          rateValue,
+        ]
+      );
+
+      return res.status(201).json({
+        message: "Tutor registered successfully",
+        user: result.rows[0],
+      });
+    }
+
+    // --- Student registration ---
     const result = await pool.query(
-      `INSERT INTO users (username, email, password_hash, user_type)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, username, email, user_type`,
-      [username, email, hashedPassword, user_type]
+      `
+      INSERT INTO users (username, email, password_hash, user_type)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, username, email, user_type
+      `,
+      [username, email, hashedPassword, "student"]
     );
 
-    const newUser = result.rows[0];
-    res.status(201).json({ message: "User registered successfully", user: newUser });
+    res.status(201).json({
+      message: "Student registered successfully",
+      user: result.rows[0],
+    });
   } catch (err) {
     console.error("Registration failed:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({
+      message:
+        err.message || "Server error during registration. Check console logs.",
+    });
   }
 });
 
@@ -62,7 +125,7 @@ router.post("/login", async (req, res) => {
     // Cookie settings: dev vs prod
     res.cookie("authToken", token, {
       httpOnly: true,
-      secure: isProd,                 // true only behind HTTPS
+      secure: isProd,
       sameSite: isProd ? "none" : "lax",
       maxAge: 60 * 60 * 1000,
       path: "/",
@@ -74,7 +137,7 @@ router.post("/login", async (req, res) => {
         id: user.id,
         username: user.username,
         email: user.email,
-        userType: user.user_type,     // camelCase
+        userType: user.user_type,
       },
     });
   } catch (err) {
@@ -92,7 +155,8 @@ router.get("/me", async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     const result = await pool.query(
-      "SELECT id, username, email, user_type FROM users WHERE id = $1",
+      `SELECT id, username, email, user_type, bio, education, specialties, rate_per_10_min
+       FROM users WHERE id = $1`,
       [decoded.id]
     );
 
@@ -101,12 +165,15 @@ router.get("/me", async (req, res) => {
     }
 
     const row = result.rows[0];
-    // Normalize to camelCase to match /login
     const user = {
       id: row.id,
       username: row.username,
       email: row.email,
       userType: row.user_type,
+      bio: row.bio || "",
+      education: row.education || "",
+      specialties: row.specialties || [],
+      ratePer10Min: row.rate_per_10_min || 0,
     };
 
     res.json({ user });
@@ -115,6 +182,7 @@ router.get("/me", async (req, res) => {
     res.status(401).json({ message: "Invalid or expired token" });
   }
 });
+
 
 // --- LOGOUT ---
 router.post("/logout", (req, res) => {

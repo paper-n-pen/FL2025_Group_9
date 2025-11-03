@@ -166,45 +166,47 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
     }, [brushColor, brushSize]);
 
     useEffect(() => {
-        const canvas = canvasRef.current;
-        if (!canvas || !socket) {
-            return;
-        }
-
-        const handleDrawing = (data: DrawData) => {
+        if (!sessionId || !socket) return;
+    
+        const handleDrawEvent = (raw: unknown) => {
+            // First, narrow the type safely
+            if (
+                !raw ||
+                typeof raw !== "object" ||
+                !("sessionId" in raw) ||
+                !("payload" in raw)
+            ) {
+                console.warn("Invalid draw event payload:", raw);
+                return;
+            }
+    
+            const { sessionId: sid, payload } = raw as { sessionId: string; payload: DrawData };
+    
+            if (sid !== sessionId) return;
+    
             const context = contextRef.current;
             const canvas = canvasRef.current;
-            if (!context || !canvas) {
-                return;
-            }
-
-            if (data.type === 'clear') {
+            if (!context || !canvas) return;
+    
+            // Apply the drawing from another user
+            applyDrawData(context, canvas, payload);
+    
+            // Update local draw history
+            if (payload.type === "clear") {
                 drawHistoryRef.current = [];
-            } else if (data.type === 'erase-stroke') {
-                drawHistoryRef.current.push(data);
-            } else if (data.type === 'erase') {
-                drawHistoryRef.current.push(data);
             } else {
-                drawHistoryRef.current.push(data);
+                drawHistoryRef.current.push(payload);
             }
-
-            applyDrawData(context, canvas, data);
         };
-
-        const drawingListener = (...args: unknown[]) => {
-            const [payload] = args as [DrawData | undefined];
-            if (!payload) {
-                return;
-            }
-            handleDrawing(payload);
-        };
-
-        socket.on('drawing', drawingListener);
-
+    
+        socket.on("whiteboard-draw", handleDrawEvent);
+    
         return () => {
-            socket.off('drawing', drawingListener);
+            socket.off("whiteboard-draw", handleDrawEvent);
         };
-    }, [socket, applyDrawData]);
+    }, [socket, sessionId, applyDrawData]);
+    
+    
 
     const resolveCanvasPoint = useCallback((event: React.MouseEvent<HTMLCanvasElement>): Point => {
         const canvas = canvasRef.current;
@@ -222,20 +224,11 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
     }, []);
 
     const emitDrawing = (payload: DrawData) => {
-        if (!sessionId || !socket) {
-            return;
-        }
-
-        if (payload.type === 'clear') {
-            drawHistoryRef.current = [];
-        } else if (payload.type === 'erase-stroke') {
-            drawHistoryRef.current.push(payload);
-        } else {
-            drawHistoryRef.current.push(payload);
-        }
-
-        socket.emit('drawing', { sessionId, payload });
+        if (!sessionId || !socket) return;
+    
+        socket.emit("whiteboard-draw", { sessionId, payload });
     };
+    
 
     const startDrawing = (event: React.MouseEvent<HTMLCanvasElement>) => {
         const context = contextRef.current;

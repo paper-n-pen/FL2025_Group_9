@@ -1,271 +1,353 @@
-// my-react-app/src/pages/tutor/TutorProfile.tsx
+// src/pages/tutor/TutorProfile.tsx
+import React, { useState, useEffect } from "react";
+import {
+  Box,
+  Typography,
+  Button,
+  Chip,
+  Card,
+  CardHeader,
+  CardContent,
+  TextField,
+  Container,
+  Stack,
+  Divider,
+  Snackbar,
+  Alert,
+  IconButton,
+} from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import {
+  getAuthStateForType,
+  storeAuthState,
+  markActiveUserType,
+} from "../../utils/authStorage";
 
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { getAuthStateForType, storeAuthState, markActiveUserType } from '../../utils/authStorage';
-import '../../styles/selectable-options.css';
-
-const TutorProfile = () => {
+export default function TutorProfile() {
   const [formData, setFormData] = useState({
-    bio: '',
-    education: '',
+    bio: "",
+    education: "",
     specialties: [] as string[],
-    ratePer10Min: ''
+    ratePer10Min: "",
   });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [snacks, setSnacks] = useState<
+    { id: number; message: string; severity?: "success" | "info" | "error" }[]
+  >([]);
   const navigate = useNavigate();
 
-  const _availableSubjects = [
-    'Computer Science', 'Mathematics', 'Physics', 'Chemistry', 
-    'Biology', 'English', 'History', 'Economics', 'Psychology'
-  ];
-
   const availableSpecialties = [
-    'Java', 'Python', 'JavaScript', 'C++', 'Data Structures', 'Algorithms',
-    'Calculus', 'Linear Algebra', 'Statistics', 'Probability',
-    'Mechanics', 'Thermodynamics', 'Electromagnetism', 'Quantum Physics',
-    'Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry',
-    'Cell Biology', 'Genetics', 'Molecular Biology',
-    'Creative Writing', 'Literature Analysis', 'Grammar',
-    'World History', 'American History', 'European History',
-    'Microeconomics', 'Macroeconomics', 'Finance',
-    'Cognitive Psychology', 'Social Psychology', 'Developmental Psychology'
+    "Java",
+    "Python",
+    "JavaScript",
+    "C++",
+    "Data Structures",
+    "Algorithms",
+    "Web Development",
+    "Machine Learning",
+    "Calculus",
+    "Linear Algebra",
+    "Statistics",
+    "Probability",
+    "Mechanics",
+    "Thermodynamics",
+    "Electromagnetism",
+    "Quantum Physics",
+    "Organic Chemistry",
+    "Inorganic Chemistry",
+    "Physical Chemistry",
+    "Biochemistry",
   ];
 
   useEffect(() => {
-    const stored = getAuthStateForType('tutor');
+    const stored = getAuthStateForType("tutor");
     if (stored.user) {
-      markActiveUserType('tutor');
+      markActiveUserType("tutor");
       setFormData({
-        bio: stored.user.bio || '',
-        education: stored.user.education || '',
+        bio: stored.user.bio || "",
+        education: stored.user.education || "",
         specialties: stored.user.specialties || [],
         ratePer10Min:
-          stored.user.ratePer10Min !== undefined && stored.user.ratePer10Min !== null
+          stored.user.ratePer10Min !== undefined &&
+          stored.user.ratePer10Min !== null
             ? Number(stored.user.ratePer10Min).toFixed(2)
-            : ''
+            : "",
       });
     } else {
-      navigate('/tutor/login');
+      navigate("/tutor/login", { replace: true });
     }
   }, [navigate]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const pushSnack = (
+    message: string,
+    severity: "success" | "info" | "error" = "info"
+  ) => {
+    setSnacks((prev) => [...prev, { id: Date.now(), message, severity }]);
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-
-    if (name === 'ratePer10Min') {
-      if (value === '' || /^\d*(?:\.\d{0,2})?$/.test(value)) {
-        setFormData((prev: typeof formData) => ({
-          ...prev,
-          ratePer10Min: value
-        }));
+    if (name === "ratePer10Min") {
+      if (value === "" || /^\d*(?:\.\d{0,2})?$/.test(value)) {
+        setFormData((prev) => ({ ...prev, ratePer10Min: value }));
       }
-      return;
+    } else {
+      setFormData((prev) => ({ ...prev, [name]: value }));
     }
-
-    setFormData((prev: typeof formData) => ({
-      ...prev,
-      [name]: value
-    }));
   };
 
   const handleSpecialtyToggle = (specialty: string) => {
-    setFormData((prev: typeof formData) => ({
+    setFormData((prev) => ({
       ...prev,
       specialties: prev.specialties.includes(specialty)
-        ? prev.specialties.filter((s: string) => s !== specialty)
-        : [...prev.specialties, specialty]
+        ? prev.specialties.filter((s) => s !== specialty)
+        : [...prev.specialties, specialty],
     }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
-    setSuccess('');
-
     try {
-      const stored = getAuthStateForType('tutor');
+      const stored = getAuthStateForType("tutor");
       if (!stored.user) {
-        navigate('/tutor/login');
+        navigate("/tutor/login", { replace: true });
         return;
       }
 
-      const normalizedRate = formData.ratePer10Min ? Number(Number(formData.ratePer10Min).toFixed(2)) : 0;
-      const _response = await axios.put('http://localhost:3000/api/queries/profile', {
+      const normalizedRate = formData.ratePer10Min
+        ? Number(Number(formData.ratePer10Min).toFixed(2))
+        : 0;
+
+      await axios.put("http://localhost:3000/api/queries/profile", {
         ...formData,
         ratePer10Min: normalizedRate,
-        userId: stored.user.id
+        userId: stored.user.id,
       });
 
-      // Update the stored tutor profile
       const updatedUser = {
         ...stored.user,
         ...formData,
-        ratePer10Min: normalizedRate
+        ratePer10Min: normalizedRate,
       };
-      storeAuthState('tutor', stored.token, updatedUser);
-      markActiveUserType('tutor');
+      storeAuthState("tutor", stored.token, updatedUser);
+      markActiveUserType("tutor");
 
-      setSuccess('Profile updated successfully!');
-      setTimeout(() => {
-        navigate('/tutor/dashboard');
-      }, 2000);
+      pushSnack("Profile updated successfully!", "success");
+      setTimeout(() => navigate("/tutor/dashboard"), 1500);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to update profile');
+      pushSnack(
+        err.response?.data?.message || "Failed to update profile",
+        "error"
+      );
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-      {/* Navigation */}
-      <nav className="bg-white/80 backdrop-blur-md border-b border-gray-200/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl flex items-center justify-center">
-                <span className="text-white font-bold text-lg">MT</span>
-              </div>
-              <span className="text-2xl font-bold text-gray-900">MicroTutor</span>
-            </div>
-            <div className="flex space-x-4">
-              <button
-                onClick={() => navigate('/tutor/dashboard')}
-                className="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                Dashboard
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
+    <Box
+      sx={{
+        minHeight: "100vh",
+        width: "100%",
+        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        py: 8,
+      }}
+    >
+      <Container
+        maxWidth={false} // 🔥 removes fixed width limits
+        sx={{
+          width: "100%",
+          height: "100%",
+          px: { xs: 4, md: 8, lg: 12 }, // consistent side padding
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}
+      >
+        {/* Header */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          mb={5}
+          sx={{ width: "100%" }}
+        >
+          <Box>
+            <Typography variant="h4" fontWeight={800}>
+              Tutor Profile
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Update your information to help students find you
+            </Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={() => navigate("/tutor/dashboard")}
+            sx={{
+              borderRadius: 2,
+              fontWeight: 600,
+              textTransform: "none",
+              px: 3,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+            }}
+          >
+            Back to Dashboard
+          </Button>
+        </Stack>
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-8 border border-white/20 shadow-xl">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">Edit Your Profile</h1>
-            <p className="text-gray-600">Update your information to help students find you</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-8">
-            {/* Bio */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Bio
-              </label>
-              <textarea
+        {/* Main Card */}
+        <Card
+          elevation={6}
+          sx={{
+            borderRadius: 4,
+            width: "100%",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+            backgroundColor: "#fff",
+          }}
+        >
+          <CardHeader
+            title="Edit Your Profile"
+            sx={{
+              backgroundColor: "#f9f9f9",
+              py: 2,
+              px: 3,
+              borderTopLeftRadius: 4,
+              borderTopRightRadius: 4,
+            }}
+          />
+          <Divider />
+          <CardContent sx={{ p: 4 }}>
+            <Stack
+              component="form"
+              spacing={4}
+              onSubmit={handleSubmit}
+              sx={{ mt: 1 }}
+            >
+              <TextField
+                label="Bio"
                 name="bio"
                 value={formData.bio}
                 onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                rows={4}
-                placeholder="Tell students about your teaching experience and expertise..."
-                required
+                multiline
+                rows={3}
+                fullWidth
+                placeholder="Tell students about your teaching experience..."
               />
-            </div>
 
-            {/* Education */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Education
-              </label>
-              <input
-                type="text"
+              <TextField
+                label="Education"
                 name="education"
                 value={formData.education}
                 onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="e.g., MS Computer Science, Stanford University"
-                required
+                fullWidth
+                placeholder="e.g., MS in Computer Science"
               />
-            </div>
 
-            {/* Specialties */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Specialties (Select all that apply)
-              </label>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                {availableSpecialties.map((specialty) => {
-                  const isSelected = formData.specialties.includes(specialty);
-                  return (
-                    <button
-                      key={specialty}
-                      type="button"
-                      aria-pressed={isSelected}
-                      onClick={() => handleSpecialtyToggle(specialty)}
-                      className={`selectable-pill${isSelected ? ' is-selected' : ''}`}
-                    >
-                      {specialty}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-sm text-gray-500 mt-2">
-                Selected: {formData.specialties.length} specialties
-              </p>
-            </div>
+              <Box>
+                <Typography
+                  variant="subtitle2"
+                  color="text.secondary"
+                  mb={1.5}
+                >
+                  Specialties (Select all that apply)
+                </Typography>
+                <Stack direction="row" flexWrap="wrap" gap={1}>
+                  {availableSpecialties.map((specialty) => {
+                    const selected = formData.specialties.includes(specialty);
+                    return (
+                      <Chip
+                        key={specialty}
+                        label={specialty}
+                        onClick={() => handleSpecialtyToggle(specialty)}
+                        color={selected ? "primary" : "default"}
+                        variant={selected ? "filled" : "outlined"}
+                        sx={{
+                          borderRadius: 2,
+                          cursor: "pointer",
+                          fontWeight: selected ? 600 : 400,
+                        }}
+                      />
+                    );
+                  })}
+                </Stack>
+                <Typography variant="caption" color="text.secondary" mt={1}>
+                  Selected: {formData.specialties.length} specialties
+                </Typography>
+              </Box>
 
-            {/* Rate */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Rate per 10 minutes ($)
-              </label>
-              <input
-                type="number"
+              <TextField
+                label="Rate per 10 minutes ($)"
                 name="ratePer10Min"
+                type="number"
                 value={formData.ratePer10Min}
                 onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="e.g., 12.50"
-                min="0"
-                step="0.01"
-                max="100"
-                required
+                fullWidth
+                inputProps={{ min: "0", step: "0.01", max: "100" }}
               />
-              <p className="text-sm text-gray-500 mt-2">
-                Students will see this rate when you accept their queries. Enter 0 for free sessions.
-              </p>
-            </div>
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
-                {error}
-              </div>
-            )}
+              <Stack direction="row" spacing={2} justifyContent="flex-end">
+                <Button
+                  variant="outlined"
+                  color="inherit"
+                  onClick={() => navigate("/tutor/dashboard")}
+                  sx={{ borderRadius: 2 }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="contained"
+                  color="success"
+                  type="submit"
+                  disabled={loading}
+                  sx={{ borderRadius: 2, fontWeight: 600 }}
+                >
+                  {loading ? "Updating..." : "Update Profile"}
+                </Button>
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+      </Container>
 
-            {success && (
-              <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-lg text-sm">
-                {success}
-              </div>
-            )}
-
-            <div className="flex justify-end space-x-4">
-              <button
-                type="button"
-                onClick={() => navigate('/tutor/dashboard')}
-                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
+      {/* Snackbars */}
+      {snacks.map((s) => (
+        <Snackbar
+          key={s.id}
+          open
+          autoHideDuration={4000}
+          onClose={() =>
+            setSnacks((prev) => prev.filter((x) => x.id !== s.id))
+          }
+          anchorOrigin={{ vertical: "top", horizontal: "right" }}
+        >
+          <Alert
+            severity={s.severity}
+            variant="filled"
+            action={
+              <IconButton
+                size="small"
+                aria-label="close"
+                color="inherit"
+                onClick={() =>
+                  setSnacks((prev) => prev.filter((x) => x.id !== s.id))
+                }
               >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-8 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50"
-              >
-                {loading ? 'Updating...' : 'Update Profile'}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            }
+            sx={{ boxShadow: 3, borderRadius: 2 }}
+          >
+            {s.message}
+          </Alert>
+        </Snackbar>
+      ))}
+    </Box>
   );
-};
-
-export default TutorProfile;
+}

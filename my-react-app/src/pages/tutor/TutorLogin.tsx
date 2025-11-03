@@ -1,101 +1,74 @@
 // src/pages/tutor/TutorLogin.tsx
 import React, { useState } from "react";
 import {
-  Box,
-  Container,
-  Paper,
-  Typography,
-  TextField,
-  Button,
+  Box, Typography, TextField, Button, Link as MuiLink, Paper
 } from "@mui/material";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
+import { SOCKET_ENDPOINT } from "../../socket";
+import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
+
+axios.defaults.withCredentials = true;
 
 export default function TutorLogin() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const navigate = useNavigate();
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
+
     try {
-      const res = await axios.post("http://localhost:3000/api/tutor/login", {
-        email,
-        password,
-      });
-      localStorage.setItem("tutorToken", res.data.token);
-      navigate("/tutor/dashboard");
+      await axios.post(`${SOCKET_ENDPOINT}/api/login`, form, { withCredentials: true });
+
+      const { data } = await axios.get(`${SOCKET_ENDPOINT}/api/me`, { withCredentials: true });
+      const user = data?.user;
+      if (!user) throw new Error("Missing user after verification");
+
+      storeAuthState("tutor", null, user);
+      markActiveUserType("tutor");
+
+      if (user.userType?.toLowerCase() === "student") navigate("/student/dashboard", { replace: true });
+      else navigate("/tutor/dashboard", { replace: true });
     } catch (err: any) {
-      setError(err.response?.data?.message || "Login failed.");
+      console.error("Login failed:", err);
+      setError(err.response?.data?.message || "Login failed. Please try again.");
     }
   };
 
   return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        py: 4,
-      }}
-    >
-      <Container maxWidth="sm">
-        <Paper
-          elevation={6}
-          sx={{
-            p: 5,
-            borderRadius: 4,
-            textAlign: "center",
-          }}
-        >
-          <Typography variant="h4" fontWeight="bold" gutterBottom>
-            Tutor Login
-          </Typography>
-          <Typography variant="body1" color="text.secondary" mb={3}>
-            Welcome back! Please sign in to your account.
-          </Typography>
+    <Box sx={{ minHeight: "100vh", width: "100vw", display: "flex",
+      justifyContent: "center", alignItems: "center",
+      background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)", p: 2 }}>
+      <Paper elevation={6} sx={{ p: 6, borderRadius: 4, textAlign: "center",
+        width: "100%", maxWidth: 420, boxShadow: "0 8px 24px rgba(0,0,0,0.08)" }}>
+        <Typography variant="h4" fontWeight="bold" gutterBottom>Tutor Login</Typography>
+        <Typography variant="body1" color="text.secondary" mb={3}>
+          Welcome back! Please sign in to your account.
+        </Typography>
 
-          <Box component="form" onSubmit={handleSubmit}>
-            <TextField
-              label="Email"
-              variant="outlined"
-              fullWidth
-              margin="normal"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <TextField
-              label="Password"
-              type="password"
-              variant="outlined"
-              fullWidth
-              margin="normal"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+        <Box component="form" onSubmit={handleSubmit}>
+          <TextField fullWidth label="Email" name="email" value={form.email}
+            onChange={handleChange} margin="normal" required />
+          <TextField fullWidth label="Password" name="password" type="password"
+            value={form.password} onChange={handleChange} margin="normal" required />
 
-            {error && (
-              <Typography color="error" sx={{ mt: 1, fontSize: 14 }}>
-                {error}
-              </Typography>
-            )}
+          <Button fullWidth type="submit" variant="contained" color="success" size="large" sx={{ mt: 3 }}>
+            LOGIN
+          </Button>
 
-            <Button
-              variant="contained"
-              color="success"
-              size="large"
-              fullWidth
-              type="submit"
-              sx={{ mt: 3 }}
-            >
-              Login
-            </Button>
-          </Box>
-        </Paper>
-      </Container>
+          {error && <Typography color="error" mt={2}>{error}</Typography>}
+        </Box>
+
+        <Typography variant="body2" mt={3}>
+          Don’t have an account?{" "}
+          <MuiLink component={Link} to="/tutor/setup">Sign up here</MuiLink>
+        </Typography>
+      </Paper>
     </Box>
   );
 }
