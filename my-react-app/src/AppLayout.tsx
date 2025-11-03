@@ -1,5 +1,5 @@
 // src/AppLayout.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Box,
   AppBar,
@@ -16,42 +16,36 @@ export default function AppLayout() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const didFetch = useRef(false); // 👈 prevent Strict Mode double-fetch
 
+  // ✅ Fetch the logged-in user via cookie (once)
   useEffect(() => {
-    const fetchUser = async () => {
+    if (didFetch.current) return;
+    didFetch.current = true;
+
+    (async () => {
       try {
         const res = await axios.get("http://localhost:3000/api/me", {
           withCredentials: true,
         });
+        console.log("Authenticated user:", res.data.user);
         setUser(res.data.user);
-      } catch {
+      } catch (err) {
+        console.warn("Not authenticated:", err);
         setUser(null);
       } finally {
         setLoading(false);
       }
-    };
-    fetchUser();
+    })();
   }, []);
 
-  // ✅ Define logout handler
-  const handleLogout = async () => {
-    try {
-      await axios.post("http://localhost:3000/api/logout", {}, { withCredentials: true });
-      setUser(null);
-      navigate("/student/login");
-    } catch (err) {
-      console.error("Logout failed:", err);
-    }
-  };
-
-  // ✅ Use effect to safely handle redirect after loading
+  // ✅ Redirect *after* a definitive check
   useEffect(() => {
-    if (!loading && !user) {
-      navigate("/student/login");
+    if (!loading && user === null) {
+      navigate("/student/login", { replace: true });
     }
   }, [loading, user, navigate]);
 
-  // ✅ Loading spinner while checking cookie
   if (loading) {
     return (
       <Box
@@ -67,6 +61,11 @@ export default function AppLayout() {
     );
   }
 
+  if (user === null) {
+    // Prevents render flicker before redirect
+    return null;
+  }
+
   return (
     <Box
       sx={{
@@ -77,7 +76,7 @@ export default function AppLayout() {
         background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
       }}
     >
-      {/* ---------- Header ---------- */}
+      {/* Header */}
       <AppBar
         position="static"
         elevation={0}
@@ -111,22 +110,32 @@ export default function AppLayout() {
             </Typography>
           </Box>
 
-          {user ? (
-            <Box display="flex" alignItems="center" gap={2}>
-              <Typography variant="body1">Hi, {user.username}</Typography>
-              <Button onClick={handleLogout} variant="outlined" size="small">
-                Logout
-              </Button>
-            </Box>
-          ) : (
-            <Button component={Link} to="/" variant="outlined" size="small">
-              Home
+          <Box display="flex" alignItems="center" gap={2}>
+            <Typography variant="body1">Hi, {user.username}</Typography>
+            <Button
+              onClick={async () => {
+                try {
+                  await axios.post(
+                    "http://localhost:3000/api/logout",
+                    {},
+                    { withCredentials: true }
+                  );
+                  setUser(null);
+                  navigate("/student/login", { replace: true });
+                } catch (err) {
+                  console.error("Logout failed:", err);
+                }
+              }}
+              variant="outlined"
+              size="small"
+            >
+              Logout
             </Button>
-          )}
+          </Box>
         </Toolbar>
       </AppBar>
 
-      {/* ---------- Main content ---------- */}
+      {/* Main content area */}
       <Box
         sx={{
           flexGrow: 1,
@@ -146,7 +155,7 @@ export default function AppLayout() {
             width: "100%",
           }}
         >
-          <Outlet /> {/* 👈 Page content (Dashboard, etc.) */}
+          <Outlet /> {/* 👈 Protected content renders here */}
         </Container>
       </Box>
     </Box>

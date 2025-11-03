@@ -1,128 +1,146 @@
 // my-react-app/src/pages/student/StudentDashboard.tsx
+import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import {
+  Box,
+  Container,
+  Grid,
+  Card,
+  CardHeader,
+  CardContent,
+  Typography,
+  Button,
+  Chip,
+  TextField,
+  Stack,
+  Avatar,
+  Divider,
+  Snackbar,
+  Alert,
+  IconButton,
+} from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import { markActiveUserType, clearAuthState } from "../../utils/authStorage";
+import { getSocket, SOCKET_ENDPOINT } from "../../socket";
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { getAuthStateForType, markActiveUserType, clearAuthState } from '../../utils/authStorage';
-import { getSocket, SOCKET_ENDPOINT } from '../../socket';
-import '../../styles/selectable-options.css';
-
+axios.defaults.withCredentials = true;
 const socket = getSocket();
 
 interface Subject {
   name: string;
-  icon: string;
+  icon: string; // using emoji for simplicity; could swap to @mui/icons-material
   subtopics: string[];
 }
 
-const StudentDashboard = () => {
-  const [selectedSubject, setSelectedSubject] = useState<string>('');
-  const [selectedSubtopic, setSelectedSubtopic] = useState<string>('');
-  const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [acceptedTutors, setAcceptedTutors] = useState<any[]>([]);
-  const [studentUser, setStudentUser] = useState<any>(() => {
-    const stored = getAuthStateForType('student');
-    return stored.user;
-  });
+export default function StudentDashboard() {
   const navigate = useNavigate();
+
+  // --- UI state ---
+  const [selectedSubject, setSelectedSubject] = useState<string>("");
+  const [selectedSubtopic, setSelectedSubtopic] = useState<string>("");
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // --- data state ---
+  const [studentUser, setStudentUser] = useState<any>(null);
+  const [acceptedTutors, setAcceptedTutors] = useState<any[]>([]);
+
+  // --- notifications ---
+  const [snacks, setSnacks] = useState<
+    { id: number; message: string; severity?: "success" | "info" | "error" }[]
+  >([]);
+
+  const pushSnack = (message: string, severity: "success" | "info" | "error" = "info") => {
+    setSnacks((prev) => [...prev, { id: Date.now(), message, severity }]);
+  };
 
   const subjects: Subject[] = [
     {
-      name: 'Computer Science',
-      icon: '💻',
-      subtopics: ['Java', 'Python', 'JavaScript', 'C++', 'Data Structures', 'Algorithms', 'Web Development', 'Machine Learning']
+      name: "Computer Science",
+      icon: "💻",
+      subtopics: [
+        "Java",
+        "Python",
+        "JavaScript",
+        "C++",
+        "Data Structures",
+        "Algorithms",
+        "Web Development",
+        "Machine Learning",
+      ],
     },
-    {
-      name: 'Math',
-      icon: '📊',
-      subtopics: ['Calculus', 'Linear Algebra', 'Statistics', 'Probability', 'Discrete Math', 'Geometry']
-    },
-    {
-      name: 'Physics',
-      icon: '⚛️',
-      subtopics: ['Mechanics', 'Thermodynamics', 'Electromagnetism', 'Quantum Physics', 'Optics']
-    },
-    {
-      name: 'Chemistry',
-      icon: '🧪',
-      subtopics: ['Organic Chemistry', 'Inorganic Chemistry', 'Physical Chemistry', 'Biochemistry']
-    }
+    { name: "Math", icon: "📊", subtopics: ["Calculus", "Linear Algebra", "Statistics", "Probability", "Discrete Math", "Geometry"] },
+    { name: "Physics", icon: "⚛️", subtopics: ["Mechanics", "Thermodynamics", "Electromagnetism", "Quantum Physics", "Optics"] },
+    { name: "Chemistry", icon: "🧪", subtopics: ["Organic Chemistry", "Inorganic Chemistry", "Physical Chemistry", "Biochemistry"] },
   ];
+
+  // ✅ Hydrate the user from server; AppLayout already guards this route.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await axios.get(`${SOCKET_ENDPOINT}/api/me`);
+        if (!cancelled && data?.user) {
+          setStudentUser(data.user);
+          markActiveUserType?.("student");
+        }
+      } catch {
+        if (!cancelled) navigate("/student/login", { replace: true });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
   const fetchTutorResponses = useCallback(async () => {
     try {
-      if (!studentUser?.id) {
-        return;
-      }
-
-  const response = await axios.get(`${SOCKET_ENDPOINT}/api/queries/student/${studentUser.id}/responses`);
-      const activeResponses = response.data.filter((item: any) => {
-        const status = item?.status?.toLowerCase?.() || '';
-        const sessionStatus = item?.sessionStatus?.toLowerCase?.() || '';
-        if (status === 'completed' || sessionStatus === 'ended') {
-          return false;
-        }
-        return true;
+      if (!studentUser?.id) return;
+      const response = await axios.get(
+        `${SOCKET_ENDPOINT}/api/queries/student/${studentUser.id}/responses`
+      );
+      const active = response.data.filter((item: any) => {
+        const status = item?.status?.toLowerCase?.() || "";
+        const sessionStatus = item?.sessionStatus?.toLowerCase?.() || "";
+        return !(status === "completed" || sessionStatus === "ended");
       });
-      setAcceptedTutors(activeResponses);
+      setAcceptedTutors(active);
     } catch (error) {
-      console.error('Error fetching tutor responses:', error);
+      console.error("Error fetching tutor responses:", error);
     }
   }, [studentUser?.id]);
 
-  // Check authentication
-  useEffect(() => {
-    const stored = getAuthStateForType('student');
-    if (!stored.user) {
-      navigate('/student/login');
-      return;
-    }
-
-    markActiveUserType('student');
-    setStudentUser(stored.user);
-  }, [navigate]);
-
-  // Socket.IO for real-time notifications
+  // Socket: join room + live updates
   useEffect(() => {
     if (studentUser?.id) {
-      socket.emit('join-student-room', studentUser.id);
+      socket.emit("join-student-room", studentUser.id);
     }
-    
-    const acceptanceHandler = (data: any) => {
-      setNotifications((prev: any[]) => [...prev, {
-        id: Date.now(),
-        type: 'tutor-accepted',
-        message: `${data.tutorName} accepted your query!`,
-        data
-      }]);
+
+    const onAccepted = (data: any) => {
+      pushSnack(`${data.tutorName} accepted your query!`, "success");
       fetchTutorResponses();
     };
 
-    socket.on('tutor-accepted', acceptanceHandler);
+    socket.on("tutor-accepted", onAccepted);
 
     return () => {
-      if (studentUser?.id) {
-        socket.emit('leave-student-room', studentUser.id);
-      }
-      socket.off('tutor-accepted', acceptanceHandler);
+      if (studentUser?.id) socket.emit("leave-student-room", studentUser.id);
+      socket.off("tutor-accepted", onAccepted);
     };
   }, [fetchTutorResponses, studentUser?.id]);
 
   useEffect(() => {
-    const sessionEndedHandler = (payload: any) => {
-      if (payload?.studentId && studentUser?.id && payload.studentId.toString() !== studentUser.id.toString()) {
+    const onSessionEnded = (payload: any) => {
+      if (payload?.studentId && studentUser?.id && String(payload.studentId) !== String(studentUser.id)) {
         return;
       }
-
       fetchTutorResponses();
     };
 
-    socket.on('session-ended', sessionEndedHandler);
-
+    socket.on("session-ended", onSessionEnded);
     return () => {
-      socket.off('session-ended', sessionEndedHandler);
+      socket.off("session-ended", onSessionEnded);
     };
   }, [fetchTutorResponses, studentUser?.id]);
 
@@ -132,307 +150,340 @@ const StudentDashboard = () => {
     return () => clearInterval(interval);
   }, [fetchTutorResponses]);
 
-  const currentSubject = subjects.find(s => s.name === selectedSubject);
+  const currentSubject = subjects.find((s) => s.name === selectedSubject);
 
+  // --- Handlers ---
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedSubject || !selectedSubtopic || !query.trim()) {
-      alert('Please fill in all fields');
+      pushSnack("Please fill in all fields", "error");
       return;
     }
-
     if (!studentUser?.id) {
-      navigate('/student/login');
+      pushSnack("Your session expired. Please login again.", "error");
+      navigate("/student/login", { replace: true });
       return;
     }
 
     setLoading(true);
     try {
-  const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/post`, {
+      const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/post`, {
         subject: selectedSubject,
         subtopic: selectedSubtopic,
         query: query.trim(),
-        studentId: studentUser.id
+        studentId: studentUser.id,
       });
-
-      if (response.data.message === 'Query posted successfully') {
-        alert('Query posted successfully! Tutors will be notified.');
-        setQuery('');
-        setSelectedSubject('');
-        setSelectedSubtopic('');
+      if (response.data.message === "Query posted successfully") {
+        pushSnack("Query posted! Tutors will be notified.", "success");
+        setQuery("");
+        setSelectedSubject("");
+        setSelectedSubtopic("");
       }
     } catch (error) {
-      console.error('Error posting query:', error);
-      alert('Failed to post query. Please try again.');
+      console.error("Error posting query:", error);
+      pushSnack("Failed to post query. Please try again.", "error");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAcceptTutor = async (tutorData: any) => {
+  const handleAcceptTutor = async (t: any) => {
     try {
-      let destination = tutorData.sessionId;
+      let destination = t.sessionId;
 
       if (!destination) {
         if (!studentUser?.id) {
-          navigate('/student/login');
+          pushSnack("Your session expired. Please login again.", "error");
+          navigate("/student/login", { replace: true });
           return;
         }
-
-  const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/session`, {
-          queryId: tutorData.queryId,
-          tutorId: tutorData.tutorId,
-          studentId: studentUser.id
+        const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/session`, {
+          queryId: t.queryId,
+          tutorId: t.tutorId,
+          studentId: studentUser.id,
         });
-
         destination = response.data.sessionId;
-
-        if (destination) {
-          await fetchTutorResponses();
-        }
+        if (destination) await fetchTutorResponses();
       }
 
-      if (destination) {
-        navigate(`/session/${destination}`);
-      } else {
-        alert('Session is not ready yet. Please wait for the tutor to start the session.');
-      }
+      if (destination) navigate(`/session/${destination}`);
+      else pushSnack("Session not ready yet. Please wait.", "info");
     } catch (error: any) {
-      console.error('Error starting session:', error);
-      const message = error.response?.data?.message || error.message || 'Failed to start session. Please try again.';
-      alert(message);
+      console.error("Error starting session:", error);
+      pushSnack(
+        error.response?.data?.message || error.message || "Failed to start session.",
+        "error"
+      );
     }
   };
 
-  const handleLogout = () => {
-    if (studentUser?.id) {
-      socket.emit('leave-student-room', studentUser.id);
-    }
-    clearAuthState('student');
+  const handleLogout = async () => {
+    try {
+      if (studentUser?.id) socket.emit("leave-student-room", studentUser.id);
+      await axios.post(`${SOCKET_ENDPOINT}/api/logout`, {});
+    } catch {}
+    clearAuthState?.("student");
     setStudentUser(null);
-    navigate('/');
+    navigate("/student/login", { replace: true });
   };
+
+  // --- UI ---
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navigation */}
-      <nav className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">MT</span>
-              </div>
-              <span className="text-xl font-semibold text-gray-900">MicroTutor</span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <button onClick={handleLogout} className="text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium">
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
+    <Box
+      sx={{
+        minHeight: "100%",
+        width: "100%",
+      }}
+    >
+      {/* Page heading (AppLayout already has top app bar) */}
+      <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" mb={3}>
+          <Box>
+            <Typography variant="h4" fontWeight={800}>
+              Student Dashboard
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Post your questions and get help from expert tutors
+            </Typography>
+          </Box>
+          <Button variant="outlined" size="small" onClick={handleLogout}>
+            Logout
+          </Button>
+        </Stack>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Notifications */}
-        {notifications.length > 0 && (
-          <div className="fixed top-4 right-4 z-50 space-y-2">
-            {notifications.map((notification) => (
-              <div key={notification.id} className="bg-green-500 text-white p-4 rounded-lg shadow-lg max-w-sm">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-medium">{notification.message}</p>
-                    {notification.data && (
-                      <p className="text-sm opacity-90 mt-1">
-                        Rate: ${notification.data.rate}/10min
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => setNotifications(prev => prev.filter(n => n.id !== notification.id))}
-                    className="text-white hover:text-gray-200 ml-2"
-                  >
-                    ×
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Student Dashboard</h1>
-          <p className="text-gray-600">Post your questions and get help from expert tutors</p>
-        </div>
-
-        <div className="grid lg:grid-cols-2 gap-6">
-          {/* Post Query Form */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Post Your Question</h2>
-              <p className="text-sm text-gray-500">Select a subject and describe what you need help with</p>
-            </div>
-            <div className="p-6">
-              <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Subject Selection */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-3">
-                    Select Subject
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {subjects.map((subject) => {
-                      const isSelected = selectedSubject === subject.name;
-                      return (
-                        <button
-                          key={subject.name}
-                          type="button"
-                          aria-pressed={isSelected}
-                          onClick={() => {
-                            setSelectedSubject(subject.name);
-                            setSelectedSubtopic('');
-                          }}
-                          className={`selectable-card${isSelected ? ' is-selected' : ''}`}
-                        >
-                          <div className="selectable-icon">{subject.icon}</div>
-                          <div className="selectable-title">{subject.name}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Subtopic Selection */}
-                {currentSubject && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                      Select Subtopic
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {currentSubject.subtopics.map((subtopic) => {
-                        const isSelected = selectedSubtopic === subtopic;
+        <Grid container spacing={3}>
+          {/* Post Question */}
+          <Grid item xs={12} md={6}>
+            <Card elevation={3} sx={{ borderRadius: 3 }}>
+              <CardHeader
+                title="Post Your Question"
+                subheader="Select a subject and describe what you need help with"
+              />
+              <Divider />
+              <CardContent>
+                <Stack component="form" spacing={3} onSubmit={handleSubmit}>
+                  {/* Subject selection */}
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary" mb={1.5}>
+                      Select Subject
+                    </Typography>
+                    <Grid container spacing={1.5}>
+                      {subjects.map((s) => {
+                        const isSelected = selectedSubject === s.name;
                         return (
-                          <button
-                            key={subtopic}
-                            type="button"
-                            aria-pressed={isSelected}
-                            onClick={() => setSelectedSubtopic(subtopic)}
-                            className={`selectable-chip${isSelected ? ' is-selected' : ''}`}
-                          >
-                            {subtopic}
-                          </button>
+                          <Grid item xs={6} key={s.name}>
+                            <Card
+                              onClick={() => {
+                                setSelectedSubject(s.name);
+                                setSelectedSubtopic("");
+                              }}
+                              sx={{
+                                cursor: "pointer",
+                                borderRadius: 2,
+                                p: 1.5,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 1.5,
+                                border: isSelected ? "2px solid" : "1px solid",
+                                borderColor: isSelected ? "primary.main" : "divider",
+                                backgroundColor: isSelected ? "primary.50" : "background.paper",
+                                transition: "all .15s ease-in-out",
+                              }}
+                              variant="outlined"
+                            >
+                              <Avatar sx={{ width: 36, height: 36 }}>{s.icon}</Avatar>
+                              <Typography fontWeight={600} sx={{ lineHeight: 1.1 }}>
+                                {s.name}
+                              </Typography>
+                            </Card>
+                          </Grid>
                         );
                       })}
-                    </div>
-                  </div>
+                    </Grid>
+                  </Box>
+
+                  {/* Subtopic chips */}
+                  {currentSubject && (
+                    <Box>
+                      <Typography variant="subtitle2" color="text.secondary" mb={1.5}>
+                        Select Subtopic
+                      </Typography>
+                      <Stack direction="row" flexWrap="wrap" gap={1}>
+                        {currentSubject.subtopics.map((st) => {
+                          const selected = selectedSubtopic === st;
+                          return (
+                            <Chip
+                              key={st}
+                              label={st}
+                              onClick={() => setSelectedSubtopic(st)}
+                              color={selected ? "primary" : "default"}
+                              variant={selected ? "filled" : "outlined"}
+                              sx={{ borderRadius: 2 }}
+                            />
+                          );
+                        })}
+                      </Stack>
+                    </Box>
+                  )}
+
+                  {/* Description */}
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary" mb={1}>
+                      Describe your question
+                    </Typography>
+                    <TextField
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      multiline
+                      rows={4}
+                      fullWidth
+                      placeholder="Explain your question in detail..."
+                    />
+                  </Box>
+
+                  <Button
+                    type="submit"
+                    variant="contained"
+                    size="large"
+                    disabled={loading}
+                    sx={{ borderRadius: 2 }}
+                  >
+                    {loading ? "Posting..." : "Post Question"}
+                  </Button>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Tutor Responses */}
+          <Grid item xs={12} md={6}>
+            <Card elevation={3} sx={{ borderRadius: 3 }}>
+              <CardHeader
+                title="Tutor Responses"
+                subheader="Tutors who accepted your query"
+              />
+              <Divider />
+              <CardContent>
+                {acceptedTutors.length === 0 ? (
+                  <Box
+                    sx={{
+                      py: 6,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      textAlign: "center",
+                      gap: 1.5,
+                    }}
+                  >
+                    <Avatar sx={{ bgcolor: "grey.100", color: "grey.500", width: 56, height: 56 }}>
+                      {/* person icon via SVG path for no extra deps */}
+                      <svg width="28" height="28" viewBox="0 0 24 24">
+                        <path
+                          fill="currentColor"
+                          d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5m0 2c-4 0-8 2-8 6h16c0-4-4-6-8-6Z"
+                        />
+                      </svg>
+                    </Avatar>
+                    <Typography variant="h6">No tutor responses yet</Typography>
+                    <Typography color="text.secondary">
+                      Tutors will appear here when they accept your query
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Stack spacing={2}>
+                    {acceptedTutors.map((tutor: any, idx: number) => (
+                      <Card
+                        key={tutor.queryId || idx}
+                        variant="outlined"
+                        sx={{ borderRadius: 2, backgroundColor: "success.50" }}
+                      >
+                        <CardContent sx={{ pb: 1 }}>
+                          <Stack spacing={0.5}>
+                            <Typography variant="h6">{tutor.tutorName}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Rate: {tutor.rate ? `$${tutor.rate}/10min` : "N/A"}
+                            </Typography>
+                            {tutor.bio && (
+                              <Typography variant="body2" color="text.secondary">
+                                {tutor.bio}
+                              </Typography>
+                            )}
+                            {tutor.education && (
+                              <Typography variant="body2" color="text.secondary">
+                                Education: {tutor.education}
+                              </Typography>
+                            )}
+                            {(tutor.subject || tutor.subtopic) && (
+                              <Typography variant="caption" color="text.secondary">
+                                {tutor.subject} {tutor.subtopic && `• ${tutor.subtopic}`}
+                              </Typography>
+                            )}
+                            {tutor.query && (
+                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                {tutor.query}
+                              </Typography>
+                            )}
+                            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                              {tutor.status && (
+                                <Chip label={`Status: ${tutor.status}`} size="small" />
+                              )}
+                              {tutor.sessionStatus && (
+                                <Chip label={`Session: ${tutor.sessionStatus}`} size="small" />
+                              )}
+                            </Stack>
+                          </Stack>
+
+                          <Stack direction="row" sx={{ mt: 2 }}>
+                            <Button
+                              fullWidth
+                              variant="contained"
+                              color="success"
+                              onClick={() => handleAcceptTutor(tutor)}
+                              sx={{ borderRadius: 2 }}
+                            >
+                              Start Session with {tutor.tutorName}
+                            </Button>
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </Stack>
                 )}
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      </Container>
 
-                {/* Query Description */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Describe your question
-                  </label>
-                  <textarea
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    rows={4}
-                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    placeholder="Explain your question in detail..."
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-lg"
-                  disabled={loading}
-                >
-                  {loading ? 'Posting...' : 'Post Question'}
-                </button>
-              </form>
-            </div>
-          </div>
-
-          {/* Accepted Tutors */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Tutor Responses</h2>
-              <p className="text-sm text-gray-500">Tutors who accepted your query</p>
-            </div>
-            <div className="p-6">
-              {acceptedTutors.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No tutor responses yet</h3>
-                  <p className="text-gray-500">Tutors will appear here when they accept your query</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {acceptedTutors.map((tutor, index) => (
-                    <div key={tutor.queryId || index} className="border border-gray-200 rounded-lg p-4 bg-green-50">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                            {tutor.tutorName}
-                          </h3>
-                          <p className="text-sm text-gray-600 mb-2">
-                            Rate: {tutor.rate ? `$${tutor.rate}/10min` : 'N/A'}
-                          </p>
-                          {tutor.bio && (
-                            <p className="text-sm text-gray-600 mb-2">
-                              {tutor.bio}
-                            </p>
-                          )}
-                          {tutor.education && (
-                            <p className="text-sm text-gray-500">
-                              Education: {tutor.education}
-                            </p>
-                          )}
-                          {(tutor.subject || tutor.subtopic) && (
-                            <p className="text-xs text-gray-500 mt-1">
-                              {tutor.subject && `${tutor.subject}`} {tutor.subtopic && `• ${tutor.subtopic}`}
-                            </p>
-                          )}
-                          {tutor.query && (
-                            <p className="text-sm text-gray-600 mt-2 line-clamp-3">
-                              {tutor.query}
-                            </p>
-                          )}
-                          {tutor.status && (
-                            <p className="text-xs text-gray-500 mt-1 uppercase tracking-wide">
-                              Status: {tutor.status}
-                            </p>
-                          )}
-                          {tutor.sessionStatus && (
-                            <p className="text-xs text-gray-500">
-                              Session: {tutor.sessionStatus}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="mt-4">
-                        <button
-                          onClick={() => handleAcceptTutor(tutor)}
-                          className="w-full bg-green-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-green-700 transition-colors"
-                        >
-                          Start Session with {tutor.tutorName}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+      {/* Snackbars */}
+      {snacks.map((s) => (
+        <Snackbar
+          key={s.id}
+          open
+          autoHideDuration={4000}
+          onClose={() => setSnacks((prev) => prev.filter((x) => x.id !== s.id))}
+          anchorOrigin={{ vertical: "top", horizontal: "right" }}
+        >
+          <Alert
+            severity={s.severity}
+            variant="filled"
+            action={
+              <IconButton
+                size="small"
+                aria-label="close"
+                color="inherit"
+                onClick={() => setSnacks((prev) => prev.filter((x) => x.id !== s.id))}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            }
+            sx={{ boxShadow: 3, borderRadius: 2 }}
+          >
+            {s.message}
+          </Alert>
+        </Snackbar>
+      ))}
+    </Box>
   );
-};
-
-export default StudentDashboard;
+}

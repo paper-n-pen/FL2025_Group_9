@@ -3,8 +3,9 @@ const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const { pool } = require("../db"); // ensure you export `pool` correctly in db.js
-const cookieParser = require("cookie-parser");
+const { pool } = require("../db");
+
+const isProd = process.env.NODE_ENV === "production";
 
 // --- REGISTER ---
 router.post("/register", async (req, res) => {
@@ -15,16 +16,13 @@ router.post("/register", async (req, res) => {
   }
 
   try {
-    // check if user exists
     const existingUser = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
     if (existingUser.rows.length > 0) {
       return res.status(400).json({ message: "User already exists." });
     }
 
-    // hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // insert new user
     const result = await pool.query(
       `INSERT INTO users (username, email, password_hash, user_type)
        VALUES ($1, $2, $3, $4)
@@ -40,44 +38,43 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// --- LOGIN (sets secure cookie) ---
+// --- LOGIN (sets cookie) ---
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
-  console.log("POST /login endpoint hit");
-  console.log("Request body:", req.body);
+  console.log("POST /login", req.body?.email);
 
   try {
     const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
-    if (result.rows.length === 0)
+    if (result.rows.length === 0) {
       return res.status(400).json({ message: "User not found." });
+    }
 
     const user = result.rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(400).json({ message: "Invalid password." });
 
-    // Create JWT payload
     const token = jwt.sign(
       { id: user.id, username: user.username, userType: user.user_type },
       process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
 
-    // ✅ Set cookie (HTTP-only)
+    // Cookie settings: dev vs prod
     res.cookie("authToken", token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // only HTTPS in prod
-      sameSite: "strict",
-      maxAge: 3600000, // 1 hour
+      secure: isProd,                 // true only behind HTTPS
+      sameSite: isProd ? "none" : "lax",
+      maxAge: 60 * 60 * 1000,
+      path: "/",
     });
 
-    // ✅ Send user info to client
     res.json({
       message: "Login successful",
       user: {
         id: user.id,
         username: user.username,
         email: user.email,
-        userType: user.user_type,
+        userType: user.user_type,     // camelCase
       },
     });
   } catch (err) {
@@ -99,10 +96,19 @@ router.get("/me", async (req, res) => {
       [decoded.id]
     );
 
-    if (result.rows.length === 0)
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: "User not found" });
+    }
 
-    const user = result.rows[0];
+    const row = result.rows[0];
+    // Normalize to camelCase to match /login
+    const user = {
+      id: row.id,
+      username: row.username,
+      email: row.email,
+      userType: row.user_type,
+    };
+
     res.json({ user });
   } catch (err) {
     console.error("Error in /me:", err);
@@ -110,12 +116,13 @@ router.get("/me", async (req, res) => {
   }
 });
 
-// --- LOGOUT (clears cookie) ---
+// --- LOGOUT ---
 router.post("/logout", (req, res) => {
   res.clearCookie("authToken", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    path: "/",
   });
   res.json({ message: "Logged out successfully" });
 });
