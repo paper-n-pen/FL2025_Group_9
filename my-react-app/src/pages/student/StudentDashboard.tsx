@@ -4,7 +4,6 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import {
   Box,
-  Grid,
   Card,
   CardHeader,
   CardContent,
@@ -19,6 +18,7 @@ import {
   Alert,
   IconButton,
 } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 import CloseIcon from "@mui/icons-material/Close";
 import {
   markActiveUserType,
@@ -504,3 +504,5 @@ export default function StudentDashboard() {
     </Box>
   );
 }
+
+

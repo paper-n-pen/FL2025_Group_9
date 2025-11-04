@@ -10,6 +10,7 @@ const { pool } = require("./db");
 const authRoutes = require("./routes/auth"); // ✅ handles /register, /login, /me, /logout
 const { router: queriesRoutes, setIO } = require("./routes/queries");
 const passwordResetRoutes = require("./routes/passwordReset");
+const aiRoutes = require("./routes/ai");
 
 const app = express();
 const server = http.createServer(app);
@@ -27,9 +28,15 @@ const PORT = process.env.PORT || 3000;
 // --- Middleware ---
 app.use(cookieParser());
 app.use(express.json());
+
+// CORS configuration - support multiple origins from env or default to localhost:5173
+const corsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim())
+  : ["http://localhost:5173"];
+
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: corsOrigins,
     credentials: true,
   })
 );
@@ -60,6 +67,7 @@ app.get("/", (_req, res) => {
 app.use("/api", authRoutes);
 app.use("/api/queries", queriesRoutes);
 app.use("/api/auth", passwordResetRoutes);
+app.use("/api", aiRoutes);
 
 // --- Attach Socket.IO ---
 setIO(io);

@@ -1,6 +1,7 @@
 // my-react-app/src/App.tsx
 
 import { Outlet } from 'react-router-dom';
+import Chatbot from './components/Chatbot';
 import './App.css';
 
 function App() {
@@ -9,6 +10,7 @@ function App() {
       <main>
         <Outlet />
       </main>
+      <Chatbot />
     </div>
   );
 }

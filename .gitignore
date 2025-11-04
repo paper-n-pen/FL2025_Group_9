@@ -128,3 +128,8 @@ pnpm-lock.yaml
 
 # Local development
 .local
+
+# RAG Knowledge Base (keep structure, ignore generated index)
+backend/knowledge/index.json
+backend/knowledge/pages/*.md
+!backend/knowledge/pages/.gitkeep

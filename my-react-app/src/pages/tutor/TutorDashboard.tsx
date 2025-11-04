@@ -5,7 +5,6 @@ import axios from "axios";
 import {
   Box,
   Container,
-  Grid,
   Card,
   CardHeader,
   CardContent,
@@ -16,6 +15,7 @@ import {
   Divider,
   Chip,
 } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 import { getAuthStateForType, markActiveUserType, clearAuthState } from "../../utils/authStorage";
 import { getSocket, SOCKET_ENDPOINT } from "../../socket";
 
@@ -398,3 +398,5 @@ export default function TutorDashboard() {
     </Box>
   );
 }
+
+

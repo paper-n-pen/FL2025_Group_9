@@ -25,6 +25,7 @@ A real-time tutoring platform that connects students with tutors for instant hel
 - **Session Management**: Track active tutoring sessions
 - **Responsive Design**: Professional UI that works on all devices
 - **Authentication**: JWT-based secure authentication
+- **AI Chatbot**: Site-wide AI assistant powered by Ollama (LLaMA models)
 
 ## Tech Stack
 
@@ -42,6 +43,7 @@ A real-time tutoring platform that connects students with tutors for instant hel
 - **JWT** for authentication
 - **bcrypt** for password hashing
 - **CORS** for cross-origin requests
+- **Ollama** (LLaMA models) for AI chatbot via OpenAI-compatible API
 
 ### Database
 - **In-memory storage** for MVP (can be extended to PostgreSQL)
@@ -117,6 +119,105 @@ FL2025-Semester-Project/
    - Open `http://localhost:5173` in your browser
    - The landing page will show options for students and tutors
 
+### AI Chatbot Setup (Ollama)
+
+The platform includes a site-wide AI chatbot powered by Ollama. You have two options for running it:
+
+#### Option A: Run Ollama Locally on Mac (Recommended for Development)
+
+1. **Install Ollama** (if not already installed):
+   ```bash
+   # On macOS
+   brew install ollama
+   # Or download from https://ollama.ai
+   ```
+
+2. **Start Ollama service**:
+   ```bash
+   ollama serve
+   ```
+
+3. **Pull the model** (if not already available):
+   ```bash
+   ollama pull llama3.2:3b
+   ```
+
+4. **Set environment variables** (in `backend/.env` or export before starting):
+   ```bash
+   export LLM_BASE_URL=http://localhost:11434/v1
+   export LLM_MODEL=llama3.2:3b
+   ```
+
+5. **Start the backend** (Ollama must be running first):
+   ```bash
+   cd backend
+   npm start
+   ```
+
+#### Option B: Use Docker Ollama Service (All-in-Docker)
+
+1. **Set environment variables** for docker-compose:
+   ```bash
+   export LLM_BASE_URL=http://ollama:11434/v1
+   export LLM_MODEL=llama3.2:3b
+   ```
+
+2. **Start all services** (includes optional Ollama container):
+   ```bash
+   docker compose up --build
+   ```
+
+3. **Pull the model in the Ollama container** (first time only):
+   ```bash
+   docker exec ollama ollama pull llama3.2:3b
+   ```
+
+**Note**: The docker-compose.yml includes an optional `ollama` service. If you prefer to use a host Ollama instance, set `LLM_BASE_URL=http://host.docker.internal:11434/v1` in the backend environment.
+
+**Quick Test**: After setup, open the app and click the chat button (💬) in the bottom-right corner to test the AI chatbot.
+
+### TutorBot Live Answers (Database + RAG)
+
+TutorBot can answer questions about tutors, pricing, and site policies using live database queries combined with RAG (Retrieval-Augmented Generation).
+
+#### Features
+
+- **Live Tutor Information**: Query tutor prices, subjects, availability, and reviews directly from the database
+- **Subject-Based Search**: Find tutors by subject with pricing information
+- **Pricing Summary**: Get platform-wide pricing statistics
+- **Policy Questions**: Answers about login, payment, refunds, booking, etc. (from RAG knowledge base)
+- **Privacy Guard**: Only public information is shown (no emails, passwords, or private data)
+
+#### Example Questions
+
+Try asking TutorBot:
+
+- "What's the hourly rate for Mehak?"
+- "Show me Python tutors"
+- "What tutors teach Computer Science?"
+- "What's the average price for tutoring?"
+- "How do I login?"
+- "What's the refund policy?"
+- "Find tutors under $40 per hour"
+
+#### Rebuilding Knowledge Base
+
+To update the RAG knowledge base:
+
+```bash
+cd backend
+npm run kb:ingest      # Re-ingest existing markdown files
+npm run kb:rebuild     # Crawl website + ingest
+```
+
+#### Privacy Note
+
+TutorBot only accesses **public** tutor information:
+- ✅ Username, subjects, pricing, bio, education
+- ❌ Email, phone, password, private notes
+
+If a question targets private account information, TutorBot will decline to answer.
+
 ## Usage
 
 ### For Students
@@ -145,6 +246,11 @@ FL2025-Semester-Project/
 - `POST /api/queries/accept` - Accept a query
 - `POST /api/queries/session` - Create a session
 - `PUT /api/queries/profile` - Update tutor profile
+
+### AI Chat
+- `POST /api/chat` - Send messages to AI chatbot
+  - Request body: `{ messages: [{role: 'user'|'assistant'|'system', content: string}, ...] }`
+  - Response: `{ reply: string }`
 
 ## Real-time Features
 

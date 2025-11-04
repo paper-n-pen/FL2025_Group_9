@@ -3,6 +3,7 @@ import React, { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AppLayout from "./AppLayout";
+import Chatbot from "./components/Chatbot";
 
 // Lazy imports for pages
 const Landing           = lazy(() => import("./pages/Landing"));
@@ -44,6 +45,8 @@ export default function MainRouter() {
             <Route path="*" element={<Landing />} />
           </Routes>
         </Suspense>
+        {/* Chatbot - visible on all pages */}
+        <Chatbot />
       </ErrorBoundary>
     </BrowserRouter>
   );
