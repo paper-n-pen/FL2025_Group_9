@@ -5,8 +5,8 @@ import {
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
-import { SOCKET_ENDPOINT } from "../../socket";
 import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
+import { apiPath } from "../../config";
 
 axios.defaults.withCredentials = true;
 
@@ -23,9 +23,9 @@ export default function StudentLogin() {
     setError("");
 
     try {
-      const res = await axios.post(`${SOCKET_ENDPOINT}/api/login`, form, { withCredentials: true });
+  const res = await axios.post(apiPath("/login"), form, { withCredentials: true });
 
-      const { data } = await axios.get(`${SOCKET_ENDPOINT}/api/me`, { withCredentials: true });
+  const { data } = await axios.get(apiPath("/me"), { withCredentials: true });
       const user = data?.user;
       if (!user) throw new Error("Missing user after verification");
 

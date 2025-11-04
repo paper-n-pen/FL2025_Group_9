@@ -6,10 +6,11 @@ import MainRouter from "./MainRouter";
 import theme from "./theme";
 import "./index.css";
 import axios from "axios";
+import { BACKEND_ORIGIN } from "./config";
 
 // ✅ Configure Axios globally
-axios.defaults.baseURL = "http://localhost:3000";  // backend API base
-axios.defaults.withCredentials = true;             // send cookies on every request
+axios.defaults.baseURL = BACKEND_ORIGIN;          // backend API origin (supports env + proxies)
+axios.defaults.withCredentials = true;            // send cookies on every request
 axios.defaults.headers.common["Content-Type"] = "application/json";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

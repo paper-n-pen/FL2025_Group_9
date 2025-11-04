@@ -72,8 +72,7 @@ import {
   Divider,
 } from "@mui/material";
 import EditNoteIcon from "@mui/icons-material/EditNote";
-
-const API_BASE_URL = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:3000";
+import { apiPath } from "./config";
 
 export default function CreatePost() {
   const [title, setTitle] = useState("");
@@ -101,7 +100,7 @@ export default function CreatePost() {
 
     try {
       await axios.post(
-        `${API_BASE_URL}/api/posts`,
+        apiPath("/posts"),
         { title, content },
         { headers: { Authorization: `Bearer ${token}` } }
       );

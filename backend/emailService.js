@@ -1,6 +1,31 @@
 const nodemailer = require('nodemailer');
 const { pool } = require('./db');
 
+const stripTrailingSlash = (value = '') => value.replace(/\/+$/, '');
+
+const FRONTEND_BASE_URL = (() => {
+  const raw = process.env.FRONTEND_BASE_URL || process.env.APP_FRONTEND_URL;
+  if (raw) {
+    return stripTrailingSlash(raw);
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    return 'http://localhost';
+  }
+
+  return 'http://localhost:5173';
+})();
+
+const buildFrontendUrl = (path = '/') => {
+  try {
+    const base = `${FRONTEND_BASE_URL}/`;
+    return new URL(path, base).toString();
+  } catch (error) {
+    const sanitizedPath = path.startsWith('/') ? path : `/${path}`;
+    return `${FRONTEND_BASE_URL}${sanitizedPath}`;
+  }
+};
+
 // Create transporter (using Gmail for demo - in production use proper SMTP)
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -15,7 +40,7 @@ const generateResetToken = () => {
 };
 
 const sendPasswordResetEmail = async (email, resetToken) => {
-  const resetUrl = `http://localhost:5173/reset-password?token=${resetToken}`;
+  const resetUrl = buildFrontendUrl(`/reset-password?token=${resetToken}`);
   
   const mailOptions = {
     from: process.env.EMAIL_USER || 'your-email@gmail.com',

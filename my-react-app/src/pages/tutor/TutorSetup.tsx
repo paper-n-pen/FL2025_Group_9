@@ -12,6 +12,7 @@ import {
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
+import { apiPath } from "../../config";
 
 axios.defaults.withCredentials = true;
 
@@ -50,7 +51,7 @@ export default function TutorSetup() {
     }
 
     try {
-      await axios.post("http://localhost:3000/api/register", {
+      await axios.post(apiPath("/register"), {
         username: form.fullName,
         email: form.email,
         password: form.password,

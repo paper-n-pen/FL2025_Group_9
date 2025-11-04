@@ -30,7 +30,8 @@ import {
   getActiveAuthState,
   markActiveUserType,
 } from "../utils/authStorage";
-import { getSocket, SOCKET_ENDPOINT } from "../socket";
+import { getSocket } from "../socket";
+import { apiPath } from "../config";
 import type { SupportedUserType } from "../utils/authStorage";
 
 type Message = {
@@ -109,7 +110,7 @@ export default function SessionRoom() {
       return true;
     }
     try {
-      const { data } = await axios.get(`${SOCKET_ENDPOINT}/api/me`, {
+      const { data } = await axios.get(apiPath("/me"), {
         withCredentials: true,
       });
       if (data?.user) {
@@ -230,7 +231,7 @@ export default function SessionRoom() {
     if (!sessionId || !user) return;
     setIsEnding(true);
     try {
-      await axios.post(`${SOCKET_ENDPOINT}/api/queries/session/end`, {
+      await axios.post(apiPath("/queries/session/end"), {
         sessionId: Number(sessionId),
         endedBy: user.id,
       });

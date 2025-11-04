@@ -24,6 +24,7 @@ import {
   storeAuthState,
   markActiveUserType,
 } from "../../utils/authStorage";
+import { apiPath } from "../../config";
 
 export default function TutorProfile() {
   const [formData, setFormData] = useState({
@@ -121,7 +122,7 @@ export default function TutorProfile() {
         ? Number(Number(formData.ratePer10Min).toFixed(2))
         : 0;
 
-      await axios.put("http://localhost:3000/api/queries/profile", {
+      await axios.put(apiPath("/queries/profile"), {
         ...formData,
         ratePer10Min: normalizedRate,
         userId: stored.user.id,

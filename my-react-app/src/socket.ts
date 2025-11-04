@@ -1,21 +1,22 @@
 import { io } from "socket.io-client";
-import type { Socket } from "socket.io-client";
-
-const resolveBackendUrl = (): string => {
-  const meta = typeof import.meta !== "undefined"
-    ? (import.meta as { env?: Record<string, string | undefined> }).env
-    : undefined;
-
-  return meta?.VITE_BACKEND_URL ?? "http://localhost:3000";
-};
-
-export const SOCKET_ENDPOINT = resolveBackendUrl();
+import type { ManagerOptions, Socket, SocketOptions } from "socket.io-client";
+import { SOCKET_URL, SOCKET_PATH, BACKEND_ORIGIN } from "./config";
 
 let socketInstance: Socket | null = null;
 
+const socketConfig: Partial<ManagerOptions & SocketOptions> = {
+  withCredentials: true,
+  path: SOCKET_PATH,
+  transports: ["websocket", "polling"],
+};
+const resolvedSocketConfig = socketConfig as ManagerOptions & SocketOptions;
+
+export { SOCKET_URL } from "./config";
+
 export const getSocket = (): Socket => {
   if (!socketInstance) {
-    socketInstance = io(SOCKET_ENDPOINT);
+    const target = SOCKET_URL ?? BACKEND_ORIGIN;
+    socketInstance = io(target, resolvedSocketConfig);
   }
 
   return socketInstance;

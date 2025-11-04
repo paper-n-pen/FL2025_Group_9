@@ -25,7 +25,8 @@ import {
   clearAuthState,
   storeAuthState,
 } from "../../utils/authStorage";
-import { getSocket, SOCKET_ENDPOINT } from "../../socket";
+import { getSocket } from "../../socket";
+import { apiPath } from "../../config";
 
 axios.defaults.withCredentials = true;
 const socket = getSocket();
@@ -108,7 +109,7 @@ export default function StudentDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await axios.get(`${SOCKET_ENDPOINT}/api/me`, {
+        const { data } = await axios.get(apiPath("/me"), {
           withCredentials: true,
         });
         if (!cancelled && data?.user) {
@@ -133,7 +134,7 @@ export default function StudentDashboard() {
     try {
       if (!studentUser?.id) return;
       const response = await axios.get(
-        `${SOCKET_ENDPOINT}/api/queries/student/${studentUser.id}/responses`
+        apiPath(`/queries/student/${studentUser.id}/responses`)
       );
       const active = response.data.filter((item: any) => {
         const status = item?.status?.toLowerCase?.() || "";
@@ -174,7 +175,7 @@ export default function StudentDashboard() {
   const handleLogout = async () => {
     try {
       if (studentUser?.id) socket.emit("leave-student-room", studentUser.id);
-      await axios.post(`${SOCKET_ENDPOINT}/api/logout`, {});
+  await axios.post(apiPath("/logout"), {});
     } catch {}
     clearAuthState?.("student");
     setStudentUser(null);
@@ -194,7 +195,7 @@ export default function StudentDashboard() {
     }
     setLoading(true);
     try {
-      const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/post`, {
+      const response = await axios.post(apiPath("/queries/post"), {
         subject: selectedSubject,
         subtopic: selectedSubtopic,
         query: query.trim(),

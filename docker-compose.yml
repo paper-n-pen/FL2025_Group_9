@@ -18,6 +18,7 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_MODEL: ${LLM_MODEL:-llama3.2:3b}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost}
     depends_on:
       db:
         condition: service_healthy

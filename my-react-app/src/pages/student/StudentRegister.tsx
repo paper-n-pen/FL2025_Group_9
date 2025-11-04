@@ -11,6 +11,7 @@ import {
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
+import { apiPath } from "../../config";
 
 export default function StudentRegister() {
   const navigate = useNavigate();
@@ -37,7 +38,7 @@ export default function StudentRegister() {
 
     try {
       console.log("Submitting registration form...");
-      const res = await axios.post("http://localhost:3000/api/register", {
+      const res = await axios.post(apiPath("/register"), {
         username: form.name,
         email: form.email,
         password: form.password,

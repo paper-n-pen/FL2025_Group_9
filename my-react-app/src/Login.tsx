@@ -70,6 +70,7 @@ import {
   Divider,
 } from "@mui/material";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import { apiPath } from "./config";
 
 interface LoginResponse {
   token: string;
@@ -85,7 +86,7 @@ export default function Login() {
     e.preventDefault();
     setError("");
     try {
-      const res = await axios.post<LoginResponse>("/api/login", { email, password });
+  const res = await axios.post<LoginResponse>(apiPath("/login"), { email, password });
       const token = res.data.token;
       localStorage.setItem("token", token);
       navigate("/dashboard");

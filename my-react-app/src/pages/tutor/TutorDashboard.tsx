@@ -17,7 +17,8 @@ import {
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { getAuthStateForType, markActiveUserType, clearAuthState } from "../../utils/authStorage";
-import { getSocket, SOCKET_ENDPOINT } from "../../socket";
+import { getSocket } from "../../socket";
+import { apiPath } from "../../config";
 
 const socket = getSocket();
 
@@ -53,7 +54,7 @@ export default function TutorDashboard() {
         return;
       }
       const response = await axios.get(
-        `${SOCKET_ENDPOINT}/api/queries/tutor/${tutorUser.id}/accepted-queries`
+        apiPath(`/queries/tutor/${tutorUser.id}/accepted-queries`)
       );
       setAcceptedQueries(response.data || []);
     } catch (error) {
@@ -65,7 +66,7 @@ export default function TutorDashboard() {
   useEffect(() => {
     const fetchTutor = async () => {
       try {
-        const res = await axios.get("http://localhost:3000/api/me", {
+        const res = await axios.get(apiPath("/me"), {
           withCredentials: true,
         });
         const u = res.data.user;
@@ -103,7 +104,7 @@ export default function TutorDashboard() {
     const fetchQueries = async () => {
       try {
         if (!tutorUser?.id) return;
-        const response = await axios.get(`${SOCKET_ENDPOINT}/api/queries/tutor/${tutorUser.id}`);
+  const response = await axios.get(apiPath(`/queries/tutor/${tutorUser.id}`));
         const filtered = (response.data || []).filter(
           (item: StudentQuery) => !declinedQueryIdsRef.current.has(item.id)
         );
@@ -132,7 +133,7 @@ export default function TutorDashboard() {
         navigate("/tutor/login");
         return;
       }
-      const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/accept`, {
+      const response = await axios.post(apiPath("/queries/accept"), {
         queryId,
         tutorId: tutorUser.id.toString(),
       });
@@ -150,7 +151,7 @@ export default function TutorDashboard() {
   const handleDeclineQuery = async (queryId: string) => {
     try {
       if (!tutorUser?.id) return;
-      await axios.post(`${SOCKET_ENDPOINT}/api/queries/decline`, {
+      await axios.post(apiPath("/queries/decline"), {
         queryId,
         tutorId: tutorUser.id,
       });
@@ -164,7 +165,7 @@ export default function TutorDashboard() {
 
   const handleStartSession = async (query: StudentQuery) => {
     try {
-      const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/session`, {
+      const response = await axios.post(apiPath("/queries/session"), {
         queryId: query.id,
         tutorId: tutorUser.id,
         studentId: query.studentId,
