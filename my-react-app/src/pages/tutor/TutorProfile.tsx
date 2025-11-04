@@ -153,7 +153,8 @@ export default function TutorProfile() {
       sx={{
         minHeight: "100vh",
         width: "100%",
-        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        backgroundAttachment: "fixed",
         display: "flex",
         justifyContent: "center",
         alignItems: "flex-start",
@@ -210,13 +211,13 @@ export default function TutorProfile() {
             borderRadius: 4,
             width: "100%",
             boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-            backgroundColor: "#fff",
+            backgroundColor: "#1e293b",
           }}
         >
           <CardHeader
             title="Edit Your Profile"
             sx={{
-              backgroundColor: "#f9f9f9",
+              backgroundColor: "#334155",
               py: 2,
               px: 3,
               borderTopLeftRadius: 4,
@@ -304,10 +305,26 @@ export default function TutorProfile() {
                 </Button>
                 <Button
                   variant="contained"
-                  color="success"
                   type="submit"
                   disabled={loading}
-                  sx={{ borderRadius: 2, fontWeight: 600 }}
+                  sx={{ 
+                    background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                    borderRadius: "16px",
+                    px: 4,
+                    py: 1.5,
+                    minWidth: "180px",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                    "&:hover": {
+                      transform: "scale(1.05)",
+                      boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                      background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                    },
+                    "&:disabled": {
+                      background: "rgba(79, 70, 229, 0.5)",
+                    },
+                  }}
                 >
                   {loading ? "Updating..." : "Update Profile"}
                 </Button>

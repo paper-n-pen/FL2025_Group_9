@@ -193,7 +193,8 @@ export default function TutorDashboard() {
         flexDirection: "column",
         justifyContent: "flex-start",
         alignItems: "center",
-        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        backgroundAttachment: "fixed",
         py: 6,
       }}
     >
@@ -299,15 +300,44 @@ export default function TutorDashboard() {
                             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                               <Button
                                 variant="contained"
-                                color="success"
                                 onClick={() => handleAcceptQuery(q.id)}
+                                sx={{
+                                  background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                                  borderRadius: "12px",
+                                  px: 3,
+                                  py: 1,
+                                  minWidth: "100px",
+                                  textTransform: "none",
+                                  fontWeight: 600,
+                                  transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                                  "&:hover": {
+                                    transform: "scale(1.05)",
+                                    boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                                    background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                                  },
+                                }}
                               >
                                 Accept
                               </Button>
                               <Button
                                 variant="outlined"
-                                color="error"
                                 onClick={() => handleDeclineQuery(q.id)}
+                                sx={{
+                                  border: "1px solid rgba(239, 68, 68, 0.5)",
+                                  color: "#ef4444",
+                                  borderRadius: "12px",
+                                  px: 3,
+                                  py: 1,
+                                  minWidth: "100px",
+                                  textTransform: "none",
+                                  fontWeight: 600,
+                                  transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                                  "&:hover": {
+                                    transform: "scale(1.05)",
+                                    borderColor: "#ef4444",
+                                    backgroundColor: "rgba(239, 68, 68, 0.1)",
+                                  },
+                                }}
                               >
                                 Decline
                               </Button>
@@ -363,7 +393,11 @@ export default function TutorDashboard() {
                       <Card
                         key={q.id}
                         variant="outlined"
-                        sx={{ borderRadius: 2, backgroundColor: "success.50" }}
+                        sx={{ 
+                          borderRadius: 2, 
+                          backgroundColor: "rgba(16, 185, 129, 0.15)",
+                          border: "1px solid rgba(16, 185, 129, 0.3)",
+                        }}
                       >
                         <CardContent>
                           <Stack spacing={0.5}>
@@ -375,10 +409,23 @@ export default function TutorDashboard() {
                               {q.query}
                             </Typography>
                             <Button
-                              fullWidth
                               variant="contained"
-                              color="success"
-                              sx={{ mt: 2 }}
+                              sx={{ 
+                                mt: 2,
+                                background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                                borderRadius: "16px",
+                                px: 3,
+                                py: 1.5,
+                                minWidth: "180px",
+                                textTransform: "none",
+                                fontWeight: 600,
+                                transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                                "&:hover": {
+                                  transform: "scale(1.05)",
+                                  boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                                  background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                                },
+                              }}
                               onClick={() => handleStartSession(q)}
                             >
                               Start Session

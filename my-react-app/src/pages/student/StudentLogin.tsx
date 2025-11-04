@@ -62,7 +62,9 @@ export default function StudentLogin() {
   return (
     <Box sx={{ minHeight: "100vh", width: "100vw", display: "flex",
       justifyContent: "center", alignItems: "center",
-      background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)", p: 2 }}>
+      background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+      backgroundAttachment: "fixed",
+      p: 2 }}>
       <Paper elevation={6} sx={{ p: 6, borderRadius: 4, textAlign: "center",
         width: "100%", maxWidth: 420, boxShadow: "0 8px 24px rgba(0,0,0,0.08)" }}>
         <Typography variant="h4" fontWeight="bold" gutterBottom>Student Login</Typography>
@@ -82,8 +84,31 @@ export default function StudentLogin() {
             </Alert>
           )}
 
-          <Button fullWidth type="submit" variant="contained" color="primary" size="large" 
-            disabled={loading} sx={{ mt: 3 }}>
+          <Button 
+            type="submit" 
+            variant="contained" 
+            disabled={loading} 
+            sx={{ 
+              mt: 3,
+              background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+              borderRadius: "24px",
+              px: 3,
+              py: 1.2,
+              minWidth: "140px",
+              textTransform: "none",
+              fontWeight: 600,
+              fontSize: "0.95rem",
+              transition: "transform 0.2s ease, box-shadow 0.2s ease",
+              "&:hover": {
+                transform: "scale(1.05)",
+                boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+              },
+              "&:disabled": {
+                background: "rgba(79, 70, 229, 0.5)",
+              },
+            }}
+          >
             {loading ? (
               <>
                 <CircularProgress size={20} sx={{ mr: 1 }} color="inherit" />

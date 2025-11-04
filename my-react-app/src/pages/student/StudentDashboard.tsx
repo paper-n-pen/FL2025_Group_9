@@ -242,7 +242,8 @@ export default function StudentDashboard() {
         flexDirection: "column",
         justifyContent: "flex-start",
         alignItems: "center",
-        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        backgroundAttachment: "fixed",
         px: 4,
         py: 4,
         overflowX: "hidden",
@@ -328,7 +329,7 @@ export default function StudentDashboard() {
                               gap: 1.5,
                               border: isSelected ? "2px solid" : "1px solid",
                               borderColor: isSelected ? "primary.main" : "divider",
-                              backgroundColor: isSelected ? "primary.50" : "background.paper",
+                              backgroundColor: isSelected ? "primary.dark" : "background.paper",
                             }}
                             variant="outlined"
                           >
@@ -381,9 +382,26 @@ export default function StudentDashboard() {
                 <Button
                   type="submit"
                   variant="contained"
-                  size="large"
                   disabled={loading}
-                  sx={{ borderRadius: 2 }}
+                  sx={{ 
+                    background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                    borderRadius: "20px",
+                    px: 3,
+                    py: 1.2,
+                    minWidth: "140px",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    fontSize: "0.95rem",
+                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                    "&:hover": {
+                      transform: "scale(1.05)",
+                      boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                      background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                    },
+                    "&:disabled": {
+                      background: "rgba(79, 70, 229, 0.5)",
+                    },
+                  }}
                 >
                   {loading ? "Posting..." : "Post Question"}
                 </Button>
@@ -442,7 +460,8 @@ export default function StudentDashboard() {
                         variant="outlined"
                         sx={{
                           borderRadius: 2,
-                          backgroundColor: "success.50",
+                          backgroundColor: "rgba(16, 185, 129, 0.15)",
+                          border: "1px solid rgba(16, 185, 129, 0.3)",
                         }}
                       >
                         <CardContent>
@@ -451,12 +470,28 @@ export default function StudentDashboard() {
                             Rate: {tutor.rate ? `$${tutor.rate}/10min` : "N/A"}
                           </Typography>
                           <Button
-                            fullWidth
                             variant="contained"
-                            color="success"
-                            sx={{ borderRadius: 2 }}
                             disabled={!canEnter}
                             onClick={() => handleStartSession(tutor)}
+                            sx={{ 
+                              background: canEnter 
+                                ? "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)"
+                                : "rgba(79, 70, 229, 0.3)",
+                              borderRadius: "16px",
+                              px: 3,
+                              py: 1.5,
+                              minWidth: "180px",
+                              textTransform: "none",
+                              fontWeight: 600,
+                              transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                              "&:hover": {
+                                transform: canEnter ? "scale(1.05)" : "none",
+                                boxShadow: canEnter ? "0 4px 12px rgba(79, 70, 229, 0.4)" : "none",
+                                background: canEnter 
+                                  ? "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)"
+                                  : "rgba(79, 70, 229, 0.3)",
+                              },
+                            }}
                           >
                             {canEnter ? "Enter Session" : "Waiting for Tutor to Start..."}
                           </Button>
