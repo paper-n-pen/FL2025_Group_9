@@ -1,42 +1,61 @@
 // src/pages/tutor/TutorLogin.tsx
 import React, { useState } from "react";
 import {
-  Box, Typography, TextField, Button, Link as MuiLink, Paper
+  Box, Typography, TextField, Button, Link as MuiLink, Paper, Alert, CircularProgress
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
-import { SOCKET_ENDPOINT } from "../../socket";
+import api from "../../lib/api";
 import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
-
-axios.defaults.withCredentials = true;
 
 export default function TutorLogin() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: "", password: "" });
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    setError(""); // Clear error on input change
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setLoading(true);
 
     try {
-      await axios.post(`${SOCKET_ENDPOINT}/api/login`, form, { withCredentials: true });
+      console.log("Attempting login...");
+      const user = await api.post('/api/auth/login', {
+        email: form.email,
+        password: form.password,
+      });
 
-      const { data } = await axios.get(`${SOCKET_ENDPOINT}/api/me`, { withCredentials: true });
-      const user = data?.user;
-      if (!user) throw new Error("Missing user after verification");
+      console.log("Login successful! User:", user);
 
-      storeAuthState("tutor", null, user);
+      // Store auth state
+      storeAuthState("tutor", null, {
+        id: user.id,
+        username: user.name,
+        email: user.email,
+        userType: user.role,
+      });
       markActiveUserType("tutor");
 
-      if (user.userType?.toLowerCase() === "student") navigate("/student/dashboard", { replace: true });
-      else navigate("/tutor/dashboard", { replace: true });
+      // Navigate based on role
+      if (user.role?.toLowerCase() === "student") {
+        console.log("Navigating to /student/dashboard");
+        navigate("/student/dashboard", { replace: true });
+      } else {
+        console.log("Navigating to /tutor/dashboard");
+        navigate("/tutor/dashboard", { replace: true });
+      }
     } catch (err: any) {
       console.error("Login failed:", err);
-      setError(err.response?.data?.message || "Login failed. Please try again.");
+      // Show exact server error message
+      const errorMessage = err.message || "Login failed. Please try again.";
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -52,20 +71,32 @@ export default function TutorLogin() {
         </Typography>
 
         <Box component="form" onSubmit={handleSubmit}>
-          <TextField fullWidth label="Email" name="email" value={form.email}
-            onChange={handleChange} margin="normal" required />
+          <TextField fullWidth label="Email" name="email" type="email" value={form.email}
+            onChange={handleChange} margin="normal" required disabled={loading} />
           <TextField fullWidth label="Password" name="password" type="password"
-            value={form.password} onChange={handleChange} margin="normal" required />
+            value={form.password} onChange={handleChange} margin="normal" required disabled={loading} />
 
-          <Button fullWidth type="submit" variant="contained" color="success" size="large" sx={{ mt: 3 }}>
-            LOGIN
+          {error && (
+            <Alert severity="error" sx={{ mt: 2, textAlign: "left" }}>
+              {error}
+            </Alert>
+          )}
+
+          <Button fullWidth type="submit" variant="contained" color="success" size="large" 
+            disabled={loading} sx={{ mt: 3 }}>
+            {loading ? (
+              <>
+                <CircularProgress size={20} sx={{ mr: 1 }} color="inherit" />
+                Logging in...
+              </>
+            ) : (
+              "LOGIN"
+            )}
           </Button>
-
-          {error && <Typography color="error" mt={2}>{error}</Typography>}
         </Box>
 
         <Typography variant="body2" mt={3}>
-          Don’t have an account?{" "}
+          Don't have an account?{" "}
           <MuiLink component={Link} to="/tutor/setup">Sign up here</MuiLink>
         </Typography>
       </Paper>

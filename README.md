@@ -101,6 +101,33 @@ FL2025-Semester-Project/
 
 ### Running the Application
 
+#### Local Run (Quick Start)
+
+1. **Start database**
+   ```bash
+   docker compose up -d db
+   ```
+
+2. **Start backend**
+   ```bash
+   docker compose up -d --build backend
+   ```
+   Or manually:
+   ```bash
+   cd backend
+   PORT=3000 DATABASE_URL=postgresql://postgres:password@localhost:5432/mydatabase npm run dev
+   ```
+   The backend will run on `http://localhost:3000`
+
+3. **Start frontend (optional - for local dev)**
+   ```bash
+   cd my-react-app
+   VITE_API_URL=http://localhost:3000 npm run dev
+   ```
+   The frontend will run on `http://localhost:5173`
+
+#### Docker Setup (All Services)
+
 1. **Start the backend server**
    ```bash
    cd backend

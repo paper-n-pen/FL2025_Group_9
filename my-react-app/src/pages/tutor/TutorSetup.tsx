@@ -9,11 +9,12 @@ import {
   Link as MuiLink,
   Chip,
   Autocomplete,
+  Alert,
+  CircularProgress,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
-
-axios.defaults.withCredentials = true;
+import api from "../../lib/api";
+import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
 
 // ✅ Predefined list of specialties tutors can choose from
 const specialtiesList = [
@@ -26,47 +27,76 @@ const specialtiesList = [
 export default function TutorSetup() {
   const navigate = useNavigate();
   const [form, setForm] = useState({
-    fullName: "",
+    name: "",
     email: "",
     password: "",
     confirmPassword: "",
     education: "",
     specialties: [] as string[],
-    rate: "",
+    price_per_hour: "",
   });
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+    setError(""); // Clear error on input change
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
+    setLoading(true);
 
+    // Client-side validation
     if (form.password !== form.confirmPassword) {
       setError("Passwords do not match");
+      setLoading(false);
+      return;
+    }
+
+    if (form.password.length < 6) {
+      setError("Password must be at least 6 characters");
+      setLoading(false);
       return;
     }
 
     try {
-      await axios.post("http://localhost:3000/api/register", {
-        username: form.fullName,
+      console.log("Submitting tutor registration...");
+      const user = await api.post('/api/auth/register', {
+        role: "tutor",
+        name: form.name,
         email: form.email,
         password: form.password,
-        user_type: "tutor",
-        education: form.education,
-        specialties: form.specialties.join(", "),
-        rate_per_10_min: form.rate,
+        education: form.education || undefined,
+        subjects: form.specialties.length > 0 ? form.specialties : undefined,
+        price_per_hour: form.price_per_hour ? Number(form.price_per_hour) : undefined,
       });
 
-      navigate("/tutor/login");
+      console.log("Tutor registration successful:", user);
+
+      // Store auth state
+      storeAuthState("tutor", null, {
+        id: user.id,
+        username: user.name,
+        email: user.email,
+        userType: user.role,
+      });
+      markActiveUserType("tutor");
+
+      setSuccess("✅ Account created successfully!");
+      setTimeout(() => {
+        navigate("/tutor/dashboard", { replace: true });
+      }, 1000);
     } catch (err: any) {
-      console.error("Registration failed:", err);
-      setError(
-        err.response?.data?.message ||
-          "Registration failed. Please try again."
-      );
+      console.error("Registration error:", err);
+      // Show exact server error message
+      const errorMessage = err.message || "Registration failed. Please try again.";
+      setError(`❌ ${errorMessage}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -104,20 +134,23 @@ export default function TutorSetup() {
           <TextField
             fullWidth
             label="Full Name"
-            name="fullName"
-            value={form.fullName}
+            name="name"
+            value={form.name}
             onChange={handleChange}
             margin="normal"
             required
+            disabled={loading}
           />
           <TextField
             fullWidth
             label="Email Address"
             name="email"
+            type="email"
             value={form.email}
             onChange={handleChange}
             margin="normal"
             required
+            disabled={loading}
           />
           <TextField
             fullWidth
@@ -128,6 +161,8 @@ export default function TutorSetup() {
             onChange={handleChange}
             margin="normal"
             required
+            disabled={loading}
+            helperText="Must be at least 6 characters"
           />
           <TextField
             fullWidth
@@ -138,6 +173,7 @@ export default function TutorSetup() {
             onChange={handleChange}
             margin="normal"
             required
+            disabled={loading}
           />
           <TextField
             fullWidth
@@ -146,6 +182,7 @@ export default function TutorSetup() {
             value={form.education}
             onChange={handleChange}
             margin="normal"
+            disabled={loading}
           />
 
           {/* ✅ Autocomplete with search + multiple selections */}
@@ -157,6 +194,7 @@ export default function TutorSetup() {
             onChange={(event, newValue) => {
               setForm({ ...form, specialties: newValue });
             }}
+            disabled={loading}
             renderTags={(value: readonly string[], getTagProps) =>
               value.map((option: string, index: number) => (
                 <Chip
@@ -181,13 +219,27 @@ export default function TutorSetup() {
 
           <TextField
             fullWidth
-            label="Rate per 10 minutes ($)"
-            name="rate"
+            label="Price per Hour ($)"
+            name="price_per_hour"
             type="number"
-            value={form.rate}
+            value={form.price_per_hour}
             onChange={handleChange}
             margin="normal"
+            disabled={loading}
+            inputProps={{ min: 0, step: 0.01 }}
           />
+
+          {error && (
+            <Alert severity="error" sx={{ mt: 2, textAlign: "left" }}>
+              {error}
+            </Alert>
+          )}
+
+          {success && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              {success}
+            </Alert>
+          )}
 
           <Button
             fullWidth
@@ -195,16 +247,18 @@ export default function TutorSetup() {
             variant="contained"
             color="success"
             size="large"
+            disabled={loading}
             sx={{ mt: 3 }}
           >
-            Create Account
+            {loading ? (
+              <>
+                <CircularProgress size={20} sx={{ mr: 1 }} color="inherit" />
+                Creating Account...
+              </>
+            ) : (
+              "Create Account"
+            )}
           </Button>
-
-          {error && (
-            <Typography color="error" mt={2}>
-              {error}
-            </Typography>
-          )}
         </Box>
 
         <Typography variant="body2" mt={3}>

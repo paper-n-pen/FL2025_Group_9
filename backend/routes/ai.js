@@ -17,6 +17,20 @@ const {
 const RAG_TOP_K = parseInt(process.env.RAG_TOP_K || "5", 10);
 
 /**
+ * Format price as currency - show exactly as set (no decimals)
+ * @param {number} price - Price value
+ * @returns {string} - Formatted price string (e.g., "$100")
+ */
+function formatPrice(price) {
+  if (!price || price === null || price === undefined) {
+    return 'Not set';
+  }
+  // Round to nearest whole number and show without decimals
+  const rounded = Math.round(price);
+  return `$${rounded}`;
+}
+
+/**
  * Extract query from recent user messages
  * @param {Array} messages - Array of message objects
  * @returns {string} - Query string from last user message
@@ -49,8 +63,8 @@ async function buildDBContext(intent) {
           if (tutor) {
             dbBlocks.push(
               `Tutor: ${tutor.name} | Subjects: ${tutor.subjects.join(', ') || 'N/A'} | ` +
-              `Price: ${tutor.price_per_hour ? `$${tutor.price_per_hour}/hr` : 'Not set'} ` +
-              `(${tutor.rate_per_10_min ? `$${tutor.rate_per_10_min}/10min` : 'N/A'}) | ` +
+              `Price: ${formatPrice(tutor.price_per_hour)}/hr ` +
+              `(${formatPrice(tutor.rate_per_10_min)}/10min) | ` +
               `Rating: ${tutor.rating || 'N/A'} | Reviews: ${tutor.reviews_count} | ` +
               `Status: ${tutor.availability_note}`
             );
@@ -77,12 +91,18 @@ async function buildDBContext(intent) {
             // Format tutors list - explicitly state count
             dbBlocks.push(`Found ${tutors.length} tutor${tutors.length > 1 ? 's' : ''} for "${subject}":`);
             tutors.forEach((tutor, idx) => {
+              // Format subjects - handle special characters like C++, C#
               const subs = (tutor.subjects || []).map(s => {
-                // Capitalize first letter of each subject
+                if (!s || s.length === 0) return s;
+                // For subjects with special chars (C++, C#), preserve them
+                // For normal subjects, capitalize first letter
+                if (/[+#]/.test(s)) {
+                  return s; // Keep as-is for C++, C#, etc.
+                }
                 return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-              }).join(', ') || 'N/A';
+              }).filter(Boolean).join(', ') || 'N/A';
               
-              const price = tutor.price_per_hour ? `$${tutor.price_per_hour}/hr` : 'Not set';
+              const price = `${formatPrice(tutor.price_per_hour)}/hr`;
               const rating = tutor.rating || 'N/A';
               const reviews = tutor.reviews_count || 0;
               
@@ -106,7 +126,7 @@ async function buildDBContext(intent) {
                 return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
               }).join(', ') || 'N/A';
               
-              const price = tutor.price_per_hour ? `$${tutor.price_per_hour}/hr` : 'Not set';
+              const price = `${formatPrice(tutor.price_per_hour)}/hr`;
               
               dbBlocks.push(
                 `Tutor: ${tutor.name} | Subjects: ${subs} | Price: ${price} | Reviews: ${tutor.reviews_count || 0}`

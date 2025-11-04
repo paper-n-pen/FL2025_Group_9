@@ -6,7 +6,8 @@ declare module "socket.io-client" {
     emit(event: string, ...args: unknown[]): void;
     on(event: string, listener: Listener): this;
     once(event: string, listener: Listener): this;
-    off(event: string, listener: Listener): this;
+    off(event: string, listener?: Listener): this;
+    removeAllListeners(event?: string): this;
     disconnect(): this;
   }
 

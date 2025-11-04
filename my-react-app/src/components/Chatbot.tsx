@@ -47,10 +47,10 @@ export default function Chatbot() {
       // Send last ~12 messages (to keep context manageable)
       const messagesToSend = updatedMessages.slice(-12);
       
-      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
       const response = await axios.post(`${apiUrl}/api/chat`, {
         messages: messagesToSend,
-      });
+      }, { withCredentials: true });
 
       const assistantMessage: Message = {
         role: 'assistant',

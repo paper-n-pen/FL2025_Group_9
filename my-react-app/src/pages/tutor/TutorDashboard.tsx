@@ -18,6 +18,7 @@ import {
 import Grid from "@mui/material/GridLegacy";
 import { getAuthStateForType, markActiveUserType, clearAuthState } from "../../utils/authStorage";
 import { getSocket, SOCKET_ENDPOINT } from "../../socket";
+import api from "../../lib/api";
 
 const socket = getSocket();
 
@@ -65,11 +66,9 @@ export default function TutorDashboard() {
   useEffect(() => {
     const fetchTutor = async () => {
       try {
-        const res = await axios.get("http://localhost:3000/api/me", {
-          withCredentials: true,
-        });
-        const u = res.data.user;
-        if (u?.userType === "tutor") {
+        const data = await api.get('/api/auth/me');
+        const u = data.user;
+        if (u?.role === "tutor" || u?.userType === "tutor") {
           setTutorUser(u);
           markActiveUserType("tutor");
         } else {

@@ -103,20 +103,24 @@ export default function SessionRoom() {
       socket.removeAllListeners("session-ended");
 
       const handleConnect = () => {
-        console.log("Joining session", sessionId);
-        socket.emit("join-session", sessionId);
+        console.log("🔌 Socket connected, joining session:", sessionId);
+        // Ensure sessionId is a string
+        const sessionIdStr = String(sessionId);
+        socket.emit("join-session", sessionIdStr);
       };
 
-      const handleIncomingMessage = (incoming: Message) => {
+      const handleIncomingMessage = (incoming: unknown) => {
+        const msg = incoming as Message;
         setMessages((prev) => {
           // avoid duplicate message keys
-          if (prev.some((m) => m.id === incoming.id)) return prev;
-          return [...prev, incoming];
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, msg];
         });
       };
 
-      const handleSessionEnded = (payload: { sessionId: string; endedBy: string }) => {
-        if (payload?.sessionId?.toString() === sessionId.toString()) {
+      const handleSessionEnded = (payload: unknown) => {
+        const data = payload as { sessionId: string; endedBy: string };
+        if (data?.sessionId?.toString() === sessionId.toString()) {
           window.alert("Session has ended. Returning to your dashboard.");
           goBackToDashboard();
         }
@@ -130,8 +134,9 @@ export default function SessionRoom() {
 
       // cleanup
       return () => {
-        console.log("Leaving session", sessionId);
-        socket.emit("leave-session", sessionId);
+        console.log("👋 Leaving session", sessionId);
+        const sessionIdStr = String(sessionId);
+        socket.emit("leave-session", sessionIdStr);
         socket.off("connect", handleConnect);
         socket.off("session-message", handleIncomingMessage);
         socket.off("session-ended", handleSessionEnded);

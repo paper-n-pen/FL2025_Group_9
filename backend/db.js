@@ -2,24 +2,41 @@
 const { Pool } = require("pg");
 require("dotenv").config();
 
+// Read DB settings from DATABASE_URL or fallback to individual env vars
+function getDbConfig() {
+  if (process.env.DATABASE_URL) {
+    return {
+      connectionString: process.env.DATABASE_URL,
+      ssl:
+        process.env.NODE_ENV === "production"
+          ? { rejectUnauthorized: false } // ✅ allow SSL for Render/Heroku
+          : false,
+    };
+  }
+  
+  // Build from individual env vars (PG* or DB_*)
+  const user = process.env.PGUSER || process.env.DB_USER;
+  const host = process.env.PGHOST || process.env.DB_HOST;
+  const database = process.env.PGDATABASE || process.env.DB_NAME;
+  const password = process.env.PGPASSWORD || process.env.DB_PASSWORD;
+  const port = process.env.PGPORT || process.env.DB_PORT;
+  
+  if (!user || !host || !database || !password || !port) {
+    console.warn('⚠️  Missing database environment variables. Using defaults.');
+    console.warn('   Set DATABASE_URL or PGHOST/PGUSER/PGDATABASE/PGPASSWORD/PGPORT');
+  }
+  
+  return {
+    user: user || "myapp_user",
+    host: host || "localhost",
+    database: database || "myapp_db",
+    password: password || "secret",
+    port: parseInt(port || "5432", 10),
+  };
+}
+
 // Create a new pool (shared connection manager)
-const pool = new Pool(
-  process.env.DATABASE_URL
-    ? {
-        connectionString: process.env.DATABASE_URL,
-        ssl:
-          process.env.NODE_ENV === "production"
-            ? { rejectUnauthorized: false } // ✅ allow SSL for Render/Heroku
-            : false,
-      }
-    : {
-        user: process.env.DB_USER || "myapp_user",
-        host: process.env.DB_HOST || "localhost",
-        database: process.env.DB_NAME || "myapp_db",
-        password: process.env.DB_PASSWORD || "secret",
-        port: process.env.DB_PORT || 5432,
-      }
-);
+const pool = new Pool(getDbConfig());
 
 // Optional: Log successful connection once
 pool

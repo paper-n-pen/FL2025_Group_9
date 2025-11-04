@@ -8,9 +8,12 @@ import {
   Button,
   Link as MuiLink,
   Paper,
+  Alert,
+  CircularProgress,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
+import api from "../../lib/api";
+import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
 
 export default function StudentRegister() {
   const navigate = useNavigate();
@@ -20,36 +23,65 @@ export default function StudentRegister() {
     password: "",
     confirmPassword: "",
   });
-  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+    setError(""); // Clear error on input change
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setMessage("");
+    setError("");
+    setSuccess("");
+    setLoading(true);
 
+    // Client-side validation
     if (form.password !== form.confirmPassword) {
-      setMessage("❌ Passwords do not match.");
+      setError("Passwords do not match.");
+      setLoading(false);
+      return;
+    }
+
+    if (form.password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      setLoading(false);
       return;
     }
 
     try {
       console.log("Submitting registration form...");
-      const res = await axios.post("http://localhost:3000/api/register", {
-        username: form.name,
+      const user = await api.post('/api/auth/register', {
+        role: 'student',
+        name: form.name,
         email: form.email,
         password: form.password,
-        user_type: "student",
       });
-      console.log("Response:", res.data);
 
-      setMessage("✅ Account created successfully!");
-      setTimeout(() => navigate("/student/login"), 1500);
+      console.log("Registration successful:", user);
+      
+      // Store auth state
+      storeAuthState("student", null, {
+        id: user.id,
+        username: user.name,
+        email: user.email,
+        userType: user.role,
+      });
+      markActiveUserType("student");
+
+      setSuccess("✅ Account created successfully!");
+      setTimeout(() => {
+        navigate("/student/dashboard", { replace: true });
+      }, 1000);
     } catch (err: any) {
-      console.error("Error registering:", err);
-      setMessage("❌ Registration failed. Please try again.");
+      console.error("Registration error:", err);
+      // Show exact server error message
+      const errorMessage = err.message || "Registration failed. Please try again.";
+      setError(`❌ ${errorMessage}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -62,112 +94,112 @@ export default function StudentRegister() {
         justifyContent: "center",
         alignItems: "center",
         background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
-        overflowX: "hidden",
-        py: 6,
+        p: 2,
       }}
     >
-      <Container maxWidth="sm">
-        <Paper
-          elevation={6}
-          sx={{
-            p: 6,
-            borderRadius: 4,
-            textAlign: "center",
-          }}
-        >
-          <Typography variant="h4" fontWeight="bold" gutterBottom>
-            Student Registration
-          </Typography>
-          <Typography variant="body1" color="text.secondary" mb={3}>
-            Create your account to start learning.
-          </Typography>
+      <Paper
+        elevation={6}
+        sx={{
+          p: 6,
+          borderRadius: 4,
+          textAlign: "center",
+          width: "100%",
+          maxWidth: 420,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+        }}
+      >
+        <Typography variant="h4" fontWeight="bold" gutterBottom>
+          Student Registration
+        </Typography>
+        <Typography variant="body1" color="text.secondary" mb={3}>
+          Create your account to start learning with expert tutors.
+        </Typography>
 
-          <Box
-            component="form"
-            noValidate
-            autoComplete="off"
-            onSubmit={handleSubmit}
+        <Box component="form" onSubmit={handleSubmit}>
+          <TextField
+            fullWidth
+            label="Full Name"
+            name="name"
+            value={form.name}
+            onChange={handleChange}
+            margin="normal"
+            required
+            disabled={loading}
+          />
+          <TextField
+            fullWidth
+            label="Email Address"
+            name="email"
+            type="email"
+            value={form.email}
+            onChange={handleChange}
+            margin="normal"
+            required
+            disabled={loading}
+          />
+          <TextField
+            fullWidth
+            label="Password"
+            name="password"
+            type="password"
+            value={form.password}
+            onChange={handleChange}
+            margin="normal"
+            required
+            disabled={loading}
+            helperText="Must be at least 6 characters"
+          />
+          <TextField
+            fullWidth
+            label="Confirm Password"
+            name="confirmPassword"
+            type="password"
+            value={form.confirmPassword}
+            onChange={handleChange}
+            margin="normal"
+            required
+            disabled={loading}
+          />
+
+          {error && (
+            <Alert severity="error" sx={{ mt: 2, textAlign: "left" }}>
+              {error}
+            </Alert>
+          )}
+
+          {success && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              {success}
+            </Alert>
+          )}
+
+          <Button
+            fullWidth
+            type="submit"
+            variant="contained"
+            color="primary"
+            size="large"
+            disabled={loading}
+            sx={{ mt: 3 }}
           >
-            <TextField
-              fullWidth
-              label="Full Name"
-              name="name"
-              value={form.name}
-              onChange={handleChange}
-              margin="normal"
-              required
-            />
-            <TextField
-              fullWidth
-              label="Email Address"
-              name="email"
-              value={form.email}
-              onChange={handleChange}
-              margin="normal"
-              required
-            />
-            <TextField
-              fullWidth
-              label="Password"
-              type="password"
-              name="password"
-              value={form.password}
-              onChange={handleChange}
-              margin="normal"
-              required
-            />
-            <TextField
-              fullWidth
-              label="Confirm Password"
-              type="password"
-              name="confirmPassword"
-              value={form.confirmPassword}
-              onChange={handleChange}
-              margin="normal"
-              required
-            />
-
-            {message && (
-              <Typography
-                variant="body2"
-                color={
-                  message.startsWith("✅") ? "success.main" : "error.main"
-                }
-                mt={2}
-              >
-                {message}
-              </Typography>
+            {loading ? (
+              <>
+                <CircularProgress size={20} sx={{ mr: 1 }} color="inherit" />
+                Creating Account...
+              </>
+            ) : (
+              "Create Account"
             )}
+          </Button>
+        </Box>
 
-            <Button
-              fullWidth
-              type="submit"
-              variant="contained"
-              color="primary"
-              size="large"
-              sx={{ mt: 3 }}
-            >
-              Create Account
-            </Button>
-          </Box>
-
-          <Typography variant="body2" mt={3}>
-            Already have an account?{" "}
-            <MuiLink component={Link} to="/student/login">
-              Sign in here
-            </MuiLink>
-          </Typography>
-
-          <MuiLink
-            component={Link}
-            to="/"
-            underline="none"
-            sx={{ display: "block", mt: 2 }}
-          >
-            ← Back to Home
+        <Typography variant="body2" mt={3}>
+          Already have an account?{" "}
+          <MuiLink component={Link} to="/student/login">
+            Sign in here
           </MuiLink>
-        </Paper>
-      </Container>
+        </Typography>
+      </Paper>
     </Box>
   );
 }

@@ -26,6 +26,7 @@ import {
   storeAuthState,
 } from "../../utils/authStorage";
 import { getSocket, SOCKET_ENDPOINT } from "../../socket";
+import api from "../../lib/api";
 
 axios.defaults.withCredentials = true;
 const socket = getSocket();
@@ -108,11 +109,9 @@ export default function StudentDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await axios.get(`${SOCKET_ENDPOINT}/api/me`, {
-          withCredentials: true,
-        });
+        const data = await api.get('/api/auth/me');
         if (!cancelled && data?.user) {
-          const u = { ...data.user, userType: "student" };
+          const u = { ...data.user, userType: data.user.role || "student" };
           setStudentUser(u);
           markActiveUserType("student");
           // ✅ Persist (token can be null; backend sets cookie, that's fine)
@@ -174,8 +173,10 @@ export default function StudentDashboard() {
   const handleLogout = async () => {
     try {
       if (studentUser?.id) socket.emit("leave-student-room", studentUser.id);
-      await axios.post(`${SOCKET_ENDPOINT}/api/logout`, {});
-    } catch {}
+      await api.post('/api/auth/logout', {});
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
     clearAuthState?.("student");
     setStudentUser(null);
     navigate("/student/login", { replace: true });

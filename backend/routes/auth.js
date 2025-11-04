@@ -10,20 +10,36 @@ const isProd = process.env.NODE_ENV === "production";
 // --- REGISTER ---
 router.post("/register", async (req, res) => {
   const {
-    username,
+    name,
+    username, // support both name and username for backward compatibility
     email,
     password,
-    user_type,
+    role,
+    user_type, // support both role and user_type for backward compatibility
     education,
-    specialties,
+    subjects,
+    specialties, // support both subjects and specialties
+    price_per_hour,
     rate,
     rate_per_10_min,
   } = req.body;
 
-  if (!username || !email || !password) {
+  // Normalize: use 'name' or 'username', 'role' or 'user_type'
+  const userName = name || username;
+  const userRole = role || user_type || 'student';
+
+  console.log("Registration attempt:", { name: userName, email, role: userRole });
+
+  // Validation
+  if (!userName || !email || !password) {
+    console.log("Missing required fields:", { name: !!userName, email: !!email, password: !!password });
     return res
       .status(400)
-      .json({ message: "username, email, and password are required" });
+      .json({ error: "name, email, and password are required" });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: "Password must be at least 6 characters" });
   }
 
   try {
@@ -33,36 +49,45 @@ router.post("/register", async (req, res) => {
       [email]
     );
     if (existingUser.rows.length > 0) {
-      return res.status(400).json({ message: "User already exists." });
+      return res.status(409).json({ error: "Email already registered" });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Normalize specialties: ensure array format
+    // Normalize specialties/subjects: ensure array format
     let parsedSpecialties = [];
-    if (Array.isArray(specialties)) {
-      parsedSpecialties = specialties;
-    } else if (typeof specialties === "string" && specialties.trim() !== "") {
-      parsedSpecialties = specialties
+    const specialtiesInput = subjects || specialties;
+    if (Array.isArray(specialtiesInput)) {
+      parsedSpecialties = specialtiesInput;
+    } else if (typeof specialtiesInput === "string" && specialtiesInput.trim() !== "") {
+      parsedSpecialties = specialtiesInput
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
     }
 
-    // Normalize rate
-    const rateValue = Number(rate_per_10_min || rate || 0);
+    // Normalize rate (support both price_per_hour and rate_per_10_min)
+    let rateValue = null;
+    if (price_per_hour !== undefined && price_per_hour !== null) {
+      // Convert hourly rate to per 10 minutes: hourly / 6
+      rateValue = Number(price_per_hour) / 6;
+    } else if (rate_per_10_min !== undefined && rate_per_10_min !== null) {
+      rateValue = Number(rate_per_10_min);
+    } else if (rate !== undefined && rate !== null) {
+      rateValue = Number(rate);
+    }
 
     // --- Tutor registration ---
-    if (user_type === "tutor") {
+    if (userRole === "tutor") {
       const result = await pool.query(
         `
         INSERT INTO users
           (username, email, password_hash, user_type, education, specialties, rate_per_10_min)
         VALUES ($1, $2, $3, $4, $5, $6::text[], $7)
-        RETURNING id, username, email, user_type, education, specialties, rate_per_10_min
+        RETURNING id, username as name, email, user_type as role
         `,
         [
-          username,
+          userName,
           email,
           hashedPassword,
           "tutor",
@@ -72,9 +97,12 @@ router.post("/register", async (req, res) => {
         ]
       );
 
+      const user = result.rows[0];
       return res.status(201).json({
-        message: "Tutor registered successfully",
-        user: result.rows[0],
+        id: user.id,
+        role: user.role,
+        name: user.name,
+        email: user.email,
       });
     }
 
@@ -83,20 +111,25 @@ router.post("/register", async (req, res) => {
       `
       INSERT INTO users (username, email, password_hash, user_type)
       VALUES ($1, $2, $3, $4)
-      RETURNING id, username, email, user_type
+      RETURNING id, username as name, email, user_type as role
       `,
-      [username, email, hashedPassword, "student"]
+      [userName, email, hashedPassword, "student"]
     );
 
+    const user = result.rows[0];
     res.status(201).json({
-      message: "Student registered successfully",
-      user: result.rows[0],
+      id: user.id,
+      role: user.role,
+      name: user.name,
+      email: user.email,
     });
   } catch (err) {
     console.error("Registration failed:", err);
+    console.error("Error stack:", err.stack);
+    const errorMessage = err.message || "Server error during registration. Check console logs.";
+    console.error("Sending error response:", { status: 500, error: errorMessage });
     res.status(500).json({
-      message:
-        err.message || "Server error during registration. Check console logs.",
+      error: errorMessage,
     });
   }
 });
@@ -106,53 +139,61 @@ router.post("/login", async (req, res) => {
   const { email, password } = req.body;
   console.log("POST /login", req.body?.email);
 
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required" });
+  }
+
   try {
     const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
     if (result.rows.length === 0) {
-      return res.status(400).json({ message: "User not found." });
+      return res.status(401).json({ error: "Invalid email or password" });
     }
 
     const user = result.rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(400).json({ message: "Invalid password." });
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
 
     const token = jwt.sign(
-      { id: user.id, username: user.username, userType: user.user_type },
-      process.env.JWT_SECRET,
-      { expiresIn: "1h" }
+      { id: user.id, role: user.user_type },
+      process.env.JWT_SECRET || 'dev-secret-change-me',
+      { expiresIn: "7d" }
     );
 
-    // Cookie settings: dev vs prod
-    res.cookie("authToken", token, {
+    // Cookie settings: dev-safe (secure: false, sameSite: 'lax')
+    res.cookie("token", token, {
       httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "none" : "lax",
-      maxAge: 60 * 60 * 1000,
+      secure: false,     // dev only; set true behind HTTPS in prod
+      sameSite: 'lax',
+      maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
       path: "/",
     });
 
-    res.json({
-      message: "Login successful",
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        userType: user.user_type,
-      },
-    });
+    const responseData = {
+      id: user.id,
+      role: user.user_type,
+      name: user.username,
+      email: user.email,
+    };
+    console.log("Login successful for:", user.email, "role:", user.user_type);
+    res.status(200).json(responseData);
   } catch (err) {
     console.error("Login error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
 // --- AUTH CHECK (/me) ---
 router.get("/me", async (req, res) => {
   try {
-    const token = req.cookies?.authToken;
-    if (!token) return res.status(401).json({ message: "Not authenticated" });
+    // Support both 'token' and 'authToken' cookie names for backward compatibility
+    const token = req.cookies?.token || req.cookies?.authToken;
+    if (!token) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret-change-me');
 
     const result = await pool.query(
       `SELECT id, username, email, user_type, bio, education, specialties, rate_per_10_min
@@ -161,15 +202,15 @@ router.get("/me", async (req, res) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ error: "User not found" });
     }
 
     const row = result.rows[0];
     const user = {
       id: row.id,
-      username: row.username,
+      role: row.user_type,
+      name: row.username,
       email: row.email,
-      userType: row.user_type,
       bio: row.bio || "",
       education: row.education || "",
       specialties: row.specialties || [],
@@ -179,20 +220,27 @@ router.get("/me", async (req, res) => {
     res.json({ user });
   } catch (err) {
     console.error("Error in /me:", err);
-    res.status(401).json({ message: "Invalid or expired token" });
+    res.status(401).json({ error: "Invalid or expired token" });
   }
 });
 
 
 // --- LOGOUT ---
 router.post("/logout", (req, res) => {
+  // Clear both cookie names for backward compatibility
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    path: "/",
+  });
   res.clearCookie("authToken", {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
     path: "/",
   });
-  res.json({ message: "Logged out successfully" });
+  res.status(204).send();
 });
 
 module.exports = router;

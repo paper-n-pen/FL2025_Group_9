@@ -121,11 +121,12 @@ export default function TutorProfile() {
         ? Number(Number(formData.ratePer10Min).toFixed(2))
         : 0;
 
-      await axios.put("http://localhost:3000/api/queries/profile", {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+      await axios.put(`${apiUrl}/api/queries/profile`, {
         ...formData,
         ratePer10Min: normalizedRate,
         userId: stored.user.id,
-      });
+      }, { withCredentials: true });
 
       const updatedUser = {
         ...stored.user,

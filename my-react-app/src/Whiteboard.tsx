@@ -182,7 +182,13 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
     
             const { sessionId: sid, payload } = raw as { sessionId: string; payload: DrawData };
     
-            if (sid !== sessionId) return;
+            // Compare as strings
+            if (String(sid) !== String(sessionId)) {
+                console.log("⚠️ Received draw event for different session:", sid, "vs", sessionId);
+                return;
+            }
+            
+            console.log("📥 Received whiteboard draw event:", { sessionId: sid, type: payload.type });
     
             const context = contextRef.current;
             const canvas = canvasRef.current;
@@ -226,7 +232,10 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
     const emitDrawing = (payload: DrawData) => {
         if (!sessionId || !socket) return;
     
-        socket.emit("whiteboard-draw", { sessionId, payload });
+        // Ensure sessionId is a string for consistency
+        const sessionIdStr = String(sessionId);
+        console.log("📤 Emitting whiteboard draw:", { sessionId: sessionIdStr, type: payload.type });
+        socket.emit("whiteboard-draw", { sessionId: sessionIdStr, payload });
     };
     
 
