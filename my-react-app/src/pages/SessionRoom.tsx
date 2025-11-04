@@ -2,22 +2,32 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
+  Alert,
   Avatar,
   Box,
   Button,
+  CircularProgress,
   Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Divider,
+  IconButton,
   Paper,
+  Snackbar,
   TextField,
   Typography,
 } from "@mui/material";
+import type { AlertColor, SnackbarCloseReason } from "@mui/material";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import DrawIcon from "@mui/icons-material/Draw";
+import CloseIcon from "@mui/icons-material/Close";
 import axios from "axios";
 import Whiteboard from "../Whiteboard";
 import {
   getActiveAuthState,
-  getAuthStateForType,
   markActiveUserType,
 } from "../utils/authStorage";
 import { getSocket, SOCKET_ENDPOINT } from "../socket";
@@ -36,6 +46,12 @@ type AuthUser = {
   userType?: "student" | "tutor" | string;
 };
 
+type Snack = {
+  id: number;
+  message: string;
+  severity: AlertColor;
+};
+
 export default function SessionRoom() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -43,12 +59,30 @@ export default function SessionRoom() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
+  const [snacks, setSnacks] = useState<Snack[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const socket = useMemo(() => getSocket(), []);
+  const redirectTimeoutRef = useRef<number | null>(null);
+  const snackIdRef = useRef(0);
 
   // Ensure the session fills the screen
   const containerMax = "xl";
+
+  const enqueueSnack = useCallback(
+    (message: string, severity: AlertColor) => {
+      snackIdRef.current += 1;
+      const id = snackIdRef.current;
+      setSnacks((prev: Snack[]) => [...prev, { id, message, severity }]);
+    },
+    []
+  );
+
+  const dismissSnack = useCallback((id: number) => {
+    setSnacks((prev: Snack[]) => prev.filter((snack) => snack.id !== id));
+  }, []);
 
   // ---------- helpers ----------
   const goBackToDashboard = useCallback(() => {
@@ -58,6 +92,13 @@ export default function SessionRoom() {
     if (t === "student") return navigate("/student/dashboard", { replace: true });
     navigate("/", { replace: true });
   }, [navigate, user?.userType]);
+
+  const scheduleRedirect = useCallback(() => {
+    if (redirectTimeoutRef.current) window.clearTimeout(redirectTimeoutRef.current);
+    redirectTimeoutRef.current = window.setTimeout(() => {
+      goBackToDashboard();
+    }, 1200);
+  }, [goBackToDashboard]);
 
   const ensureUser = useCallback(async () => {
     const active = getActiveAuthState();
@@ -77,7 +118,7 @@ export default function SessionRoom() {
         setUser(data.user);
         return true;
       }
-    } catch {}
+    } catch { }
     return false;
   }, []);
 
@@ -89,6 +130,28 @@ export default function SessionRoom() {
     }
 
     let mounted = true;
+    const handleConnect = () => {
+      console.log("Joining session", sessionId);
+      socket.emit("join-session", sessionId);
+    };
+
+    const handleIncomingMessage = (incoming: Message) => {
+      setMessages((prev: Message[]) => {
+        if (prev.some((m) => m.id === incoming.id)) return prev;
+        return [...prev, incoming];
+      });
+    };
+
+    const handleSessionEnded = (payload: { sessionId: string; endedBy: string }) => {
+      if (!sessionId) return;
+      if (payload?.sessionId?.toString() === sessionId.toString()) {
+        setConfirmOpen(false);
+        setIsEnding(false);
+        enqueueSnack("Session has ended. Redirecting to your dashboard...", "info");
+        scheduleRedirect();
+      }
+    };
+
     (async () => {
       const ok = await ensureUser();
       if (!mounted) return;
@@ -97,56 +160,47 @@ export default function SessionRoom() {
         return;
       }
 
-      // Prevent duplicate listeners
-      socket.removeAllListeners("connect");
-      socket.removeAllListeners("session-message");
-      socket.removeAllListeners("session-ended");
-
-      const handleConnect = () => {
-        console.log("Joining session", sessionId);
-        socket.emit("join-session", sessionId);
-      };
-
-      const handleIncomingMessage = (incoming: Message) => {
-        setMessages((prev) => {
-          // avoid duplicate message keys
-          if (prev.some((m) => m.id === incoming.id)) return prev;
-          return [...prev, incoming];
-        });
-      };
-
-      const handleSessionEnded = (payload: { sessionId: string; endedBy: string }) => {
-        if (payload?.sessionId?.toString() === sessionId.toString()) {
-          window.alert("Session has ended. Returning to your dashboard.");
-          goBackToDashboard();
-        }
-      };
+      socket.off("connect", handleConnect);
+      socket.off("session-message", handleIncomingMessage);
+      socket.off("session-ended", handleSessionEnded);
 
       socket.on("connect", handleConnect);
       socket.on("session-message", handleIncomingMessage);
       socket.on("session-ended", handleSessionEnded);
 
       if (socket.connected) handleConnect();
-
-      // cleanup
-      return () => {
-        console.log("Leaving session", sessionId);
-        socket.emit("leave-session", sessionId);
-        socket.off("connect", handleConnect);
-        socket.off("session-message", handleIncomingMessage);
-        socket.off("session-ended", handleSessionEnded);
-      };
     })();
 
     return () => {
       mounted = false;
+      console.log("Leaving session", sessionId);
+      socket.emit("leave-session", sessionId);
+      socket.off("connect", handleConnect);
+      socket.off("session-message", handleIncomingMessage);
+      socket.off("session-ended", handleSessionEnded);
     };
-  }, [sessionId, socket, navigate, ensureUser, goBackToDashboard]);
+  }, [
+    sessionId,
+    socket,
+    navigate,
+    ensureUser,
+    goBackToDashboard,
+    enqueueSnack,
+    scheduleRedirect,
+  ]);
 
   // autoscroll chat
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimeoutRef.current) {
+        window.clearTimeout(redirectTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // ---------- chat send ----------
   const sendMessage = (e: React.FormEvent) => {
@@ -160,25 +214,34 @@ export default function SessionRoom() {
       timestamp: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, msg]);
+    setMessages((prev: Message[]) => [...prev, msg]);
     setNewMessage("");
 
     socket.emit("session-message", { sessionId, message: msg });
   };
 
   // ---------- end session ----------
-  const handleEndSession = async () => {
+  const handleEndSession = () => {
+    if (!sessionId) return;
+    setConfirmOpen(true);
+  };
+
+  const confirmEndSession = async () => {
     if (!sessionId || !user) return;
-    if (!window.confirm("End this session?")) return;
+    setIsEnding(true);
     try {
       await axios.post(`${SOCKET_ENDPOINT}/api/queries/session/end`, {
         sessionId: Number(sessionId),
         endedBy: user.id,
       });
-      goBackToDashboard();
+      setConfirmOpen(false);
+      enqueueSnack("Session ended successfully. Redirecting to your dashboard...", "success");
+      scheduleRedirect();
     } catch (err) {
       console.error("End session failed:", err);
-      window.alert("Failed to end session. Please try again.");
+      enqueueSnack("Failed to end session. Please try again.", "error");
+    } finally {
+      setIsEnding(false);
     }
   };
 
@@ -209,6 +272,7 @@ export default function SessionRoom() {
             color="error"
             onClick={handleEndSession}
             sx={{ fontWeight: 600 }}
+            disabled={!user}
           >
             End Session
           </Button>
@@ -257,7 +321,7 @@ export default function SessionRoom() {
           <Divider sx={{ mb: 2 }} />
 
           <Box flex={1} overflow="auto" mb={2}>
-            {messages.map((m) => {
+            {messages.map((m: Message) => {
               const own = m.sender === user?.username;
               const t = new Date(m.timestamp);
               const time = Number.isNaN(t.getTime())
@@ -298,7 +362,9 @@ export default function SessionRoom() {
               size="small"
               placeholder="Type a message..."
               value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setNewMessage(e.target.value)
+              }
             />
             <Button variant="contained" type="submit">
               Send
@@ -306,6 +372,73 @@ export default function SessionRoom() {
           </Box>
         </Paper>
       </Container>
+
+      <Dialog
+        open={confirmOpen}
+        fullWidth
+        maxWidth="xs"
+        disableEscapeKeyDown={isEnding}
+        onClose={(event: React.SyntheticEvent, reason: "backdropClick" | "escapeKeyDown") => {
+          if (isEnding) return;
+          if (reason === "backdropClick") return;
+          setConfirmOpen(false);
+        }}
+      >
+        <DialogTitle>End Session</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Ending the session will remove access for both participants. Are you sure you want to
+            continue?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button variant="outlined" onClick={() => setConfirmOpen(false)} disabled={isEnding}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={confirmEndSession}
+            disabled={isEnding}
+          >
+            {isEnding ? <CircularProgress size={20} color="inherit" /> : "End Session"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {snacks.map((snack: Snack) => (
+        <Snackbar
+          key={snack.id}
+          open
+          autoHideDuration={4000}
+          anchorOrigin={{ vertical: "top", horizontal: "right" }}
+          onClose={(
+            _event: React.SyntheticEvent | Event,
+            reason?: SnackbarCloseReason
+          ) => {
+            if (reason === "clickaway") return;
+            dismissSnack(snack.id);
+          }}
+        >
+          <Alert
+            severity={snack.severity}
+            variant="filled"
+            action={
+              <IconButton
+                size="small"
+                color="inherit"
+                aria-label="close"
+                onClick={() => dismissSnack(snack.id)}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            }
+            sx={{ boxShadow: 3, borderRadius: 2 }}
+          >
+            {snack.message}
+          </Alert>
+        </Snackbar>
+      ))}
     </Box>
   );
 }

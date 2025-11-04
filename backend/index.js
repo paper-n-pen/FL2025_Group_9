@@ -15,9 +15,36 @@ const aiRoutes = require("./routes/ai");
 const app = express();
 const server = http.createServer(app);
 
+// CORS configuration - support multiple origins from env or default to localhost variants
+const fallbackCorsOrigins = [
+  "http://localhost:5173",
+  "http://localhost:4173",
+  "http://localhost",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:4173",
+  "http://127.0.0.1",
+];
+
+const envCorsOrigins = (process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const hasLocalhostOrigin = envCorsOrigins.some((origin) =>
+  origin.includes("localhost") || origin.includes("127.0.0.1")
+);
+
+const corsOrigins = envCorsOrigins.length
+  ? Array.from(
+      new Set([
+        ...envCorsOrigins,
+        ...(hasLocalhostOrigin ? fallbackCorsOrigins : []),
+      ])
+    )
+  : fallbackCorsOrigins;
+
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173",
+    origin: corsOrigins,
     credentials: true,
     methods: ["GET", "POST"],
   },
@@ -28,11 +55,6 @@ const PORT = process.env.PORT || 3000;
 // --- Middleware ---
 app.use(cookieParser());
 app.use(express.json());
-
-// CORS configuration - support multiple origins from env or default to localhost:5173
-const corsOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim())
-  : ["http://localhost:5173"];
 
 app.use(
   cors({
@@ -69,6 +91,13 @@ app.use("/api/queries", queriesRoutes);
 app.use("/api/auth", passwordResetRoutes);
 app.use("/api", aiRoutes);
 
+const sessionRoom = (sessionId) => {
+  if (sessionId === undefined || sessionId === null) return null;
+  const trimmed = String(sessionId).trim();
+  if (!trimmed) return null;
+  return `session-${trimmed}`;
+};
+
 // --- Attach Socket.IO ---
 setIO(io);
 
@@ -77,24 +106,34 @@ io.on("connection", (socket) => {
   console.log("Client connected:", socket.id);
 
   socket.on("join-session", (sessionId) => {
-    if (!sessionId) return;
-    socket.join(sessionId);
-    console.log(`User ${socket.id} joined session ${sessionId}`);
+    const room = sessionRoom(sessionId);
+    if (!room) return;
+    socket.join(room);
+    console.log(`User ${socket.id} joined session ${room}`);
   });
 
   socket.on("leave-session", (sessionId) => {
-    socket.leave(sessionId);
-    console.log(`User ${socket.id} left session ${sessionId}`);
+    const room = sessionRoom(sessionId);
+    if (!room) return;
+    socket.leave(room);
+    console.log(`User ${socket.id} left session ${room}`);
   });
 
-  socket.on("session-message", (data) => {
-    console.log("Session message:", data);
-    io.to(data.sessionId).emit("session-message", data.message);
+  socket.on("session-message", (data = {}) => {
+    const room = sessionRoom(data.sessionId);
+    if (!room || !data.message) return;
+    console.log("Session message:", { room, messageId: data.message?.id });
+    io.to(room).emit("session-message", data.message);
   });
 
-  socket.on("whiteboard-draw", (data) => {
-    // forward to everyone except sender
-    socket.to(data.sessionId).emit("whiteboard-draw", data);
+  socket.on("whiteboard-draw", (data = {}) => {
+    const room = sessionRoom(data.sessionId);
+    if (!room || !data.payload) return;
+    socket.to(room).emit("whiteboard-draw", data);
+  });
+
+  socket.on("disconnect", (reason) => {
+    console.log(`Client disconnected: ${socket.id} (${reason})`);
   });
 });
 

@@ -33,6 +33,19 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
     const pointsRef = useRef<Point[]>([]);
     const drawHistoryRef = useRef<DrawData[]>([]);
 
+    const resetHistory = useCallback(() => {
+        drawHistoryRef.current = [];
+    }, []);
+
+    const recordHistory = useCallback((entry: DrawData) => {
+        if (entry.type === 'clear') {
+            resetHistory();
+            return;
+        }
+
+        drawHistoryRef.current.push(entry);
+    }, [resetHistory]);
+
     const applyDrawData = useCallback((context: CanvasRenderingContext2D, canvas: HTMLCanvasElement, data: DrawData) => {
         switch (data.type) {
             case 'dot': {
@@ -192,11 +205,7 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
             applyDrawData(context, canvas, payload);
     
             // Update local draw history
-            if (payload.type === "clear") {
-                drawHistoryRef.current = [];
-            } else {
-                drawHistoryRef.current.push(payload);
-            }
+            recordHistory(payload);
         };
     
         socket.on("whiteboard-draw", handleDrawEvent);
@@ -204,7 +213,7 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
         return () => {
             socket.off("whiteboard-draw", handleDrawEvent);
         };
-    }, [socket, sessionId, applyDrawData]);
+    }, [socket, sessionId, applyDrawData, recordHistory]);
     
     
 
@@ -250,7 +259,9 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
             context.restore();
 
             pointsRef.current = [currentPoint];
-            emitDrawing({ type: 'erase', point: currentPoint, size: brushSize });
+            const payload: DrawData = { type: 'erase', point: currentPoint, size: brushSize };
+            recordHistory(payload);
+            emitDrawing(payload);
             return;
         }
 
@@ -263,7 +274,9 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
             context.closePath();
 
             // Emit the drawing event for the single point
-            emitDrawing({ type: 'dot', point: currentPoint, color: brushColor, size: brushSize });
+            const payload: DrawData = { type: 'dot', point: currentPoint, color: brushColor, size: brushSize };
+            recordHistory(payload);
+            emitDrawing(payload);
         }
     };
 
@@ -281,7 +294,9 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
                 return;
             }
 
-            emitDrawing({ type: 'erase-stroke', points: strokePoints, size: brushSize });
+            const strokePayload: DrawData = { type: 'erase-stroke', points: strokePoints, size: brushSize };
+            recordHistory(strokePayload);
+            emitDrawing(strokePayload);
             return;
         }
 
@@ -317,7 +332,9 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
             context.stroke();
             context.restore();
 
-            emitDrawing({ type: 'erase', point: currentPoint, size: brushSize });
+            const payload: DrawData = { type: 'erase', point: currentPoint, size: brushSize };
+            recordHistory(payload);
+            emitDrawing(payload);
             return;
         }
 
@@ -343,14 +360,16 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
             context.closePath();
             
             // Emit the curve data
-            emitDrawing({ 
-                type: 'curve', 
-                startPoint: prevMidPoint, 
-                midPoint: lastPoint, 
+            const payload: DrawData = {
+                type: 'curve',
+                startPoint: prevMidPoint,
+                midPoint: lastPoint,
                 endPoint: midPoint,
                 color: brushColor,
-                size: brushSize 
-            });
+                size: brushSize
+            };
+            recordHistory(payload);
+            emitDrawing(payload);
         }
     };
 
@@ -360,6 +379,7 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
         const canvas = canvasRef.current;
         if (!context || !canvas) return;
         context.clearRect(0, 0, canvas.width, canvas.height);
+        resetHistory();
         emitDrawing({ type: 'clear' });
     };
 
