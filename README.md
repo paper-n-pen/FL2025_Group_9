@@ -1,5 +1,12 @@
-# MicroTutor - On-Demand Micro-Tutoring Platform
+# FL2025: Group 9 MicroTutor - On-Demand Micro-Tutoring Platform
 
+### Team Members
+Yikang Wang, Mehak Sharma, and Sangwon Bae. 
+
+### TA
+Yiren Kang
+
+### Objectives
 A real-time tutoring platform that connects students with tutors for instant help in specific subjects. Students can post queries, tutors can accept them, and they can collaborate using an interactive whiteboard and chat system.
 
 ## Features
