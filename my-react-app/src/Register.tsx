@@ -1,10 +1,11 @@
 //my-react-app/src/Register.tsx
 
-import { useState } from 'react';
-import axios, { isAxiosError } from 'axios';
+import { useState, type FormEvent, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { storeAuthState, markActiveUserType } from './utils/authStorage';
 import type { SupportedUserType } from './utils/authStorage';
+import { apiPath } from './config';
+import api from './lib/api';
 
 function Register() {
   const [username, setUsername] = useState('');
@@ -14,11 +15,11 @@ function Register() {
   const [success, setSuccess] = useState('');
   const navigate = useNavigate();
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     try {
-      const res = await axios.post('/api/register', { username, email, password });
-      const { token, user } = res.data;
+  const res = await api.post(apiPath('/register'), { username, email, password });
+  const { token, user } = res ?? {};
 
       if (token && user) {
         const normalizedType = (user.userType || 'student') as SupportedUserType;
@@ -32,13 +33,25 @@ function Register() {
       setError('');
       setTimeout(() => navigate('/login'), 1000);
     } catch (err) {
-      if (isAxiosError(err)) {
-        setError(err.response?.data?.message || 'Registration failed');
+      if (err instanceof Error) {
+        setError(err.message || 'Registration failed');
       } else {
         setError('An unexpected error occurred.');
       }
       setSuccess('');
     }
+  };
+
+  const handleUsernameChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setUsername(event.target.value);
+  };
+
+  const handleEmailChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setEmail(event.target.value);
+  };
+
+  const handlePasswordChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setPassword(event.target.value);
   };
 
   return (
@@ -48,21 +61,21 @@ function Register() {
         type="text"
         placeholder="Username"
         value={username}
-        onChange={e => setUsername(e.target.value)}
+        onChange={handleUsernameChange}
         required
       />
       <input
         type="email"
         placeholder="Email"
         value={email}
-        onChange={e => setEmail(e.target.value)}
+        onChange={handleEmailChange}
         required
       />
       <input
         type="password"
         placeholder="Password"
         value={password}
-        onChange={e => setPassword(e.target.value)}
+        onChange={handlePasswordChange}
         required
       />
       <button type="submit">Register</button>

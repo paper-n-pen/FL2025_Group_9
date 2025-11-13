@@ -1,7 +1,7 @@
 import { useLocation, useNavigate, Outlet } from "react-router-dom";
-import axios from "axios";
 import React, { useEffect, useState } from "react";
 import { apiPath } from "./config";
+import api from "./lib/api";
 
 export default function AppLayout() {
   const [user, setUser] = useState<any>(null);
@@ -12,10 +12,8 @@ export default function AppLayout() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const res = await axios.get(apiPath("/me"), {
-          withCredentials: true,
-        });
-        setUser(res.data.user);
+        const data = await api.get(apiPath("/me"));
+        setUser(data?.user ?? null);
       } catch {
         setUser(null);
       } finally {

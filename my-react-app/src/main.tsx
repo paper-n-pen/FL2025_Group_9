@@ -6,10 +6,15 @@ import MainRouter from "./MainRouter";
 import theme from "./theme";
 import "./index.css";
 import axios from "axios";
-import { BACKEND_ORIGIN } from "./config";
 
-// ✅ Configure Axios globally
-axios.defaults.baseURL = BACKEND_ORIGIN; // backend API origin (supports env + proxies)
+// ✅ Configure Axios globally (matches fetch client defaults)
+const metaEnv = (import.meta as unknown as {
+  env?: Record<string, string | undefined>;
+}).env;
+
+const API_BASE = metaEnv?.VITE_API_URL ?? "";
+
+axios.defaults.baseURL = API_BASE || ""; // relative URL fallback for proxy setups
 axios.defaults.withCredentials = true; // send cookies on every request
 axios.defaults.headers.common["Content-Type"] = "application/json";
 

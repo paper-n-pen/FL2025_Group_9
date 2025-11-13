@@ -13,13 +13,12 @@ import {
 } from "@mui/material";
 import Autocomplete, {
   type AutocompleteRenderInputParams,
-  type AutocompleteGetTagProps,
+  type AutocompleteRenderGetTagProps,
 } from "@mui/material/Autocomplete";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
 import { apiPath } from "../../config";
-
-axios.defaults.withCredentials = true;
+import api from "../../lib/api";
+import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
 
 // ✅ Predefined list of specialties tutors can choose from
 const specialtiesList = [
@@ -36,7 +35,7 @@ type TutorSetupForm = {
   confirmPassword: string;
   education: string;
   specialties: string[];
-  price_per_hour: string;
+  rate_per_10_min: string;
 };
 
 export default function TutorSetup() {
@@ -48,7 +47,7 @@ export default function TutorSetup() {
     confirmPassword: "",
     education: "",
     specialties: [],
-    price_per_hour: "",
+    rate_per_10_min: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -82,29 +81,49 @@ export default function TutorSetup() {
     }
 
     try {
-      const hourlyRate = form.price_per_hour ? parseFloat(form.price_per_hour) : 0;
-      const ratePerTen = Number.isFinite(hourlyRate) ? Number((hourlyRate / 6).toFixed(2)) : 0;
+      const rawRate = form.rate_per_10_min ? parseFloat(form.rate_per_10_min) : 0;
+      const ratePerTen = Number.isFinite(rawRate) ? Number(rawRate.toFixed(2)) : 0;
 
-      await axios.post(apiPath("/register"), {
+      await api.post(apiPath("/register"), {
         username: form.name,
         email: form.email,
         password: form.password,
         user_type: "tutor",
         education: form.education || undefined,
         specialties: form.specialties,
-        rate: ratePerTen,
         rate_per_10_min: ratePerTen,
       });
 
-      setSuccess("✅ Account created successfully! Redirecting to login...");
-      setTimeout(() => {
-        navigate("/tutor/login", { replace: true });
-      }, 1200);
-    } catch (err: any) {
+      await api.post(apiPath("/login"), {
+        email: form.email,
+        password: form.password,
+      });
+
+      const me = await api.get(apiPath("/me"));
+      const user = me?.user;
+      if (!user) {
+        throw new Error("Unable to verify new tutor account");
+      }
+
+      const resolvedRole = (user.role || user.userType || "tutor").toLowerCase();
+      const typeKey = resolvedRole === "student" ? "student" : "tutor";
+      const normalizedUser = {
+        ...user,
+        userType: typeKey,
+        name: user.name || user.username,
+        username: user.username || user.name || user.email,
+      };
+
+      storeAuthState(typeKey, null, normalizedUser);
+      markActiveUserType(typeKey);
+
+      setSuccess("✅ Account created! Taking you to your dashboard...");
+      navigate(`/${typeKey}/dashboard`, { replace: true });
+    } catch (err: unknown) {
       console.error("Registration error:", err);
       // Show exact server error message
       const errorMessage =
-        err.response?.data?.message || err.message || "Registration failed. Please try again.";
+        err instanceof Error ? err.message : "Registration failed. Please try again.";
       setError(`❌ ${errorMessage}`);
     } finally {
       setLoading(false);
@@ -215,7 +234,7 @@ export default function TutorSetup() {
             disabled={loading}
             renderTags={(
               value: readonly string[],
-              getTagProps: AutocompleteGetTagProps
+              getTagProps: AutocompleteRenderGetTagProps
             ) =>
               value.map((option: string, index: number) => (
                 <Chip
@@ -240,10 +259,10 @@ export default function TutorSetup() {
 
           <TextField
             fullWidth
-            label="Price per Hour ($)"
-            name="price_per_hour"
+            label="Rate per 10 minutes ($)"
+            name="rate_per_10_min"
             type="number"
-            value={form.price_per_hour}
+            value={form.rate_per_10_min}
             onChange={handleChange}
             margin="normal"
             disabled={loading}

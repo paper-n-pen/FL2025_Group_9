@@ -16,15 +16,16 @@ import {
   Alert,
   IconButton,
 } from "@mui/material";
+import type { AlertColor, SnackbarCloseReason } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import {
   getAuthStateForType,
   storeAuthState,
   markActiveUserType,
 } from "../../utils/authStorage";
 import { apiPath } from "../../config";
+import api from "../../lib/api";
 
 export default function TutorProfile() {
   type TutorProfileForm = {
@@ -44,7 +45,8 @@ export default function TutorProfile() {
   type Snack = {
     id: number;
     message: string;
-    severity?: "success" | "info" | "error";
+    severity: AlertColor;
+    open: boolean;
   };
   const [snacks, setSnacks] = useState<Snack[]>([]);
   const navigate = useNavigate();
@@ -91,14 +93,23 @@ export default function TutorProfile() {
     }
   }, [navigate]);
 
-  const pushSnack = (
-    message: string,
-    severity: "success" | "info" | "error" = "info"
-  ) => {
+  const pushSnack = (message: string, severity: AlertColor = "info") => {
     setSnacks((prevSnacks: Snack[]) => [
       ...prevSnacks,
-      { id: Date.now(), message, severity },
+      { id: Date.now() + Math.random(), message, severity, open: true },
     ]);
+  };
+
+  const closeSnack = (id: number) => {
+    setSnacks((prevSnacks: Snack[]) =>
+      prevSnacks.map((snack) =>
+        snack.id === id ? { ...snack, open: false } : snack
+      )
+    );
+  };
+
+  const removeSnack = (id: number) => {
+    setSnacks((prevSnacks: Snack[]) => prevSnacks.filter((snack) => snack.id !== id));
   };
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -141,11 +152,11 @@ export default function TutorProfile() {
         ? Number(Number(formData.ratePer10Min).toFixed(2))
         : 0;
 
-      await axios.put(apiPath("/queries/profile"), {
+      await api.put(apiPath("/queries/profile"), {
         ...formData,
         ratePer10Min: normalizedRate,
         userId: stored.user.id,
-      }, { withCredentials: true });
+      });
 
       const updatedUser = {
         ...stored.user,
@@ -157,11 +168,10 @@ export default function TutorProfile() {
 
       pushSnack("Profile updated successfully!", "success");
       setTimeout(() => navigate("/tutor/dashboard"), 1500);
-    } catch (err: any) {
-      pushSnack(
-        err.response?.data?.message || "Failed to update profile",
-        "error"
-      );
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to update profile";
+      pushSnack(message, "error");
     } finally {
       setLoading(false);
     }
@@ -357,28 +367,30 @@ export default function TutorProfile() {
       {snacks.map((snack: Snack) => (
         <Snackbar
           key={snack.id}
-          open
-          autoHideDuration={4000}
-          onClose={() =>
-            setSnacks((prevSnacks: Snack[]) =>
-              prevSnacks.filter((item) => item.id !== snack.id)
-            )
-          }
+          open={snack.open}
+          autoHideDuration={2000}
           anchorOrigin={{ vertical: "top", horizontal: "right" }}
+          onClose={(
+            _event: React.SyntheticEvent | Event,
+            reason?: SnackbarCloseReason
+          ) => {
+            if (reason === "clickaway") {
+              return;
+            }
+            closeSnack(snack.id);
+          }}
+          TransitionProps={{
+            onExited: () => removeSnack(snack.id),
+          }}
         >
           <Alert
             severity={snack.severity}
-            variant="filled"
             action={
               <IconButton
                 size="small"
                 aria-label="close"
                 color="inherit"
-                onClick={() =>
-                  setSnacks((prevSnacks: Snack[]) =>
-                    prevSnacks.filter((item) => item.id !== snack.id)
-                  )
-                }
+                onClick={() => closeSnack(snack.id)}
               >
                 <CloseIcon fontSize="small" />
               </IconButton>

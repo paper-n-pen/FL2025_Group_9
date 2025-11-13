@@ -1,7 +1,6 @@
 // my-react-app/src/pages/student/StudentDashboard.tsx
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import {
   Box,
   Card,
@@ -19,6 +18,7 @@ import {
   IconButton,
   SvgIcon,
 } from "@mui/material";
+import type { AlertColor, SnackbarCloseReason } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import CloseIcon from "@mui/icons-material/Close";
 import {
@@ -28,8 +28,7 @@ import {
 } from "../../utils/authStorage";
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
-
-axios.defaults.withCredentials = true;
+import api from "../../lib/api";
 const socket = getSocket();
 
 interface Subject {
@@ -41,7 +40,8 @@ interface Subject {
 type Snack = {
   id: number;
   message: string;
-  severity?: "success" | "info" | "error";
+  severity: AlertColor;
+  open: boolean;
 };
 
 export default function StudentDashboard() {
@@ -56,12 +56,24 @@ export default function StudentDashboard() {
 
   const pushSnack = (
     message: string,
-    severity: "success" | "info" | "error" = "info"
+    severity: AlertColor = "info"
   ) =>
     setSnacks((prevSnacks: Snack[]) => [
       ...prevSnacks,
-      { id: Date.now(), message, severity },
+      { id: Date.now() + Math.random(), message, severity, open: true },
     ]);
+
+  const closeSnack = (id: number) =>
+    setSnacks((prevSnacks: Snack[]) =>
+      prevSnacks.map((item) =>
+        item.id === id ? { ...item, open: false } : item
+      )
+    );
+
+  const removeSnack = (id: number) =>
+    setSnacks((prevSnacks: Snack[]) =>
+      prevSnacks.filter((item) => item.id !== id)
+    );
 
   const subjects: Subject[] = [
     {
@@ -118,11 +130,10 @@ export default function StudentDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const { data } = await axios.get(apiPath("/me"), {
-          withCredentials: true,
-        });
-        if (!cancelled && data?.user) {
-          const u = { ...data.user, userType: data.user.role || "student" };
+        const data = await api.get(apiPath("/me"));
+        const fetchedUser = data?.user;
+        if (!cancelled && fetchedUser) {
+          const u = { ...fetchedUser, userType: fetchedUser.role || "student" };
           setStudentUser(u);
           markActiveUserType("student");
           // ✅ Persist (token can be null; backend sets cookie, that's fine)
@@ -142,10 +153,9 @@ export default function StudentDashboard() {
   const fetchTutorResponses = useCallback(async () => {
     try {
       if (!studentUser?.id) return;
-      const response = await axios.get(
-        apiPath(`/queries/student/${studentUser.id}/responses`)
-      );
-      const active = response.data.filter((item: any) => {
+      const data = await api.get(apiPath(`/queries/student/${studentUser.id}/responses`));
+      const list = Array.isArray(data) ? data : [];
+      const active = list.filter((item: any) => {
         const status = item?.status?.toLowerCase?.() || "";
         const sessionStatus = item?.sessionStatus?.toLowerCase?.() || "";
         return !(status === "completed" || sessionStatus === "ended");
@@ -184,7 +194,7 @@ export default function StudentDashboard() {
   const handleLogout = async () => {
     try {
       if (studentUser?.id) socket.emit("leave-student-room", studentUser.id);
-      await axios.post(apiPath("/logout"), {});
+      await api.post(apiPath("/logout"), {});
     } catch (err) {
       console.error("Logout error:", err);
     }
@@ -206,13 +216,13 @@ export default function StudentDashboard() {
     }
     setLoading(true);
     try {
-      const response = await axios.post(apiPath("/queries/post"), {
+      const response = await api.post(apiPath("/queries/post"), {
         subject: selectedSubject,
         subtopic: selectedSubtopic,
         query: query.trim(),
         studentId: studentUser.id,
       });
-      if (response.data.message === "Query posted successfully") {
+      if (response?.message === "Query posted successfully") {
         pushSnack("Query posted! Tutors will be notified.", "success");
         setQuery("");
         setSelectedSubject("");
@@ -523,27 +533,26 @@ export default function StudentDashboard() {
       {snacks.map((snack: Snack) => (
         <Snackbar
           key={snack.id}
-          open
-          autoHideDuration={4000}
-          onClose={() =>
-            setSnacks((prevSnacks: Snack[]) =>
-              prevSnacks.filter((item) => item.id !== snack.id)
-            )
-          }
+          open={snack.open}
+          autoHideDuration={2000}
+          onClose={(_event: React.SyntheticEvent | Event, reason?: SnackbarCloseReason) => {
+            if (reason === "clickaway") {
+              return;
+            }
+            closeSnack(snack.id);
+          }}
+          TransitionProps={{
+            onExited: () => removeSnack(snack.id),
+          }}
           anchorOrigin={{ vertical: "top", horizontal: "right" }}
         >
           <Alert
             severity={snack.severity}
-            variant="filled"
             action={
               <IconButton
                 size="small"
                 color="inherit"
-                onClick={() =>
-                  setSnacks((prevSnacks: Snack[]) =>
-                    prevSnacks.filter((item) => item.id !== snack.id)
-                  )
-                }
+                onClick={() => closeSnack(snack.id)}
               >
                 <CloseIcon fontSize="small" />
               </IconButton>

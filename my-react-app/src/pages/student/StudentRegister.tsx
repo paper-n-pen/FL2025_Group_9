@@ -11,10 +11,9 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
 import { apiPath } from "../../config";
-
-axios.defaults.withCredentials = true;
+import api from "../../lib/api";
+import { markActiveUserType, storeAuthState } from "../../utils/authStorage";
 
 type RegistrationForm = {
   name: string;
@@ -64,26 +63,43 @@ export default function StudentRegister() {
 
     try {
       console.log("Submitting registration form...");
-      await axios.post(
-        apiPath("/register"),
-        {
-          username: form.name,
-          email: form.email,
-          password: form.password,
-          user_type: "student",
-        },
-        { withCredentials: true }
-      );
+      await api.post(apiPath("/register"), {
+        username: form.name,
+        email: form.email,
+        password: form.password,
+        user_type: "student",
+      });
 
-      setSuccess("✅ Account created successfully! Redirecting to login...");
-      setTimeout(() => {
-        navigate("/student/login", { replace: true });
-      }, 1200);
-    } catch (err: any) {
+      await api.post(apiPath("/login"), {
+        email: form.email,
+        password: form.password,
+      });
+
+      const me = await api.get(apiPath("/me"));
+      const user = me?.user;
+      if (!user) {
+        throw new Error("Unable to verify new student account");
+      }
+
+      const resolvedRole = (user.role || user.userType || "student").toLowerCase();
+      const typeKey = resolvedRole === "tutor" ? "tutor" : "student";
+      const normalizedUser = {
+        ...user,
+        userType: typeKey,
+        name: user.name || user.username,
+        username: user.username || user.name || user.email,
+      };
+
+      storeAuthState(typeKey, null, normalizedUser);
+      markActiveUserType(typeKey);
+
+      setSuccess("✅ Account created! Taking you to your dashboard...");
+      navigate(`/${typeKey}/dashboard`, { replace: true });
+    } catch (err: unknown) {
       console.error("Registration error:", err);
       // Show exact server error message
       const errorMessage =
-        err.response?.data?.message || err.message || "Registration failed. Please try again.";
+        err instanceof Error ? err.message : "Registration failed. Please try again.";
       setError(`❌ ${errorMessage}`);
     } finally {
       setLoading(false);

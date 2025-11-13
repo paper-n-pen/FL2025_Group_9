@@ -24,15 +24,16 @@ import type { AlertColor, SnackbarCloseReason } from "@mui/material";
 import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import DrawIcon from "@mui/icons-material/Draw";
 import CloseIcon from "@mui/icons-material/Close";
-import axios from "axios";
 import Whiteboard from "../Whiteboard";
 import {
   getActiveAuthState,
   markActiveUserType,
+  storeAuthState,
 } from "../utils/authStorage";
 import { getSocket } from "../socket";
 import { apiPath } from "../config";
 import type { SupportedUserType } from "../utils/authStorage";
+import api from "../lib/api";
 
 type Message = {
   id: string;
@@ -44,13 +45,41 @@ type Message = {
 type AuthUser = {
   id: number;
   username: string;
-  userType?: "student" | "tutor" | string;
+  name?: string;
+  email?: string;
+  userType: SupportedUserType;
+  [key: string]: unknown;
+};
+
+const resolveUserType = (value?: string | null, fallback?: string | null): SupportedUserType => {
+  const candidate = (value || fallback || "").toLowerCase();
+  return candidate === "tutor" ? "tutor" : "student";
+};
+
+const normalizeAuthUser = (raw: any, fallbackType?: string | null): AuthUser => {
+  const userType = resolveUserType(raw?.userType ?? raw?.role, fallbackType);
+  const username =
+    raw?.username ||
+    raw?.name ||
+    (typeof raw?.email === "string" ? raw.email.split("@")[0] : undefined) ||
+    `user-${raw?.id ?? Date.now()}`;
+  const name = raw?.name ?? raw?.username ?? username;
+
+  return {
+    ...raw,
+    id: Number(raw?.id ?? 0),
+    username,
+    name,
+    email: raw?.email,
+    userType,
+  };
 };
 
 type Snack = {
   id: number;
   message: string;
   severity: AlertColor;
+  open: boolean;
 };
 
 export default function SessionRoom() {
@@ -76,21 +105,29 @@ export default function SessionRoom() {
     (message: string, severity: AlertColor) => {
       snackIdRef.current += 1;
       const id = snackIdRef.current;
-      setSnacks((prev: Snack[]) => [...prev, { id, message, severity }]);
+      setSnacks((prev: Snack[]) => [...prev, { id, message, severity, open: true }]);
     },
     []
   );
 
   const dismissSnack = useCallback((id: number) => {
+    setSnacks((prev: Snack[]) =>
+      prev.map((snack) =>
+        snack.id === id ? { ...snack, open: false } : snack
+      )
+    );
+  }, []);
+
+  const removeSnack = useCallback((id: number) => {
     setSnacks((prev: Snack[]) => prev.filter((snack) => snack.id !== id));
   }, []);
 
   // ---------- helpers ----------
   const goBackToDashboard = useCallback(() => {
     const active = getActiveAuthState();
-    const t = (user?.userType ?? active.userType) as SupportedUserType | null;
-    if (t === "tutor") return navigate("/tutor/dashboard", { replace: true });
-    if (t === "student") return navigate("/student/dashboard", { replace: true });
+    const resolved = (user?.userType ?? active.userType) as SupportedUserType | null;
+    if (resolved === "tutor") return navigate("/tutor/dashboard", { replace: true });
+    if (resolved === "student") return navigate("/student/dashboard", { replace: true });
     navigate("/", { replace: true });
   }, [navigate, user?.userType]);
 
@@ -104,22 +141,25 @@ export default function SessionRoom() {
   const ensureUser = useCallback(async () => {
     const active = getActiveAuthState();
     if (active.user) {
-      const t = (active.user.userType ?? active.userType) as SupportedUserType | null;
-      if (t) markActiveUserType(t);
-      setUser({ ...active.user, userType: t ?? active.user.userType });
+      const normalized = normalizeAuthUser(active.user, active.userType);
+      markActiveUserType(normalized.userType);
+      storeAuthState(normalized.userType, null, normalized);
+      setUser(normalized);
       return true;
     }
     try {
-      const { data } = await axios.get(apiPath("/me"), {
-        withCredentials: true,
-      });
-      if (data?.user) {
-        const t = (data.user.userType as SupportedUserType) || null;
-        if (t) markActiveUserType(t);
-        setUser(data.user);
+      const data = await api.get(apiPath("/me"));
+      const fetchedUser = data?.user;
+      if (fetchedUser) {
+        const normalized = normalizeAuthUser(fetchedUser);
+        markActiveUserType(normalized.userType);
+        storeAuthState(normalized.userType, null, normalized);
+        setUser(normalized);
         return true;
       }
-    } catch { }
+    } catch (error) {
+      console.error("Failed to resolve session user:", error);
+    }
     return false;
   }, []);
 
@@ -137,9 +177,13 @@ export default function SessionRoom() {
     };
 
     const handleIncomingMessage = (incoming: Message) => {
+      const sanitized: Message = {
+        ...incoming,
+        sender: incoming.sender || "Participant",
+      };
       setMessages((prev: Message[]) => {
-        if (prev.some((m) => m.id === incoming.id)) return prev;
-        return [...prev, incoming];
+        if (prev.some((m) => m.id === sanitized.id)) return prev;
+        return [...prev, sanitized];
       });
     };
 
@@ -208,10 +252,11 @@ export default function SessionRoom() {
     e.preventDefault();
     if (!newMessage.trim() || !user || !sessionId) return;
 
+    const senderName = user.username || user.name || "You";
     const msg: Message = {
       id: Date.now().toString(),
       text: newMessage.trim(),
-      sender: user.username,
+      sender: senderName,
       timestamp: new Date().toISOString(),
     };
 
@@ -231,7 +276,7 @@ export default function SessionRoom() {
     if (!sessionId || !user) return;
     setIsEnding(true);
     try {
-      await axios.post(apiPath("/queries/session/end"), {
+      await api.post(apiPath("/queries/session/end"), {
         sessionId: Number(sessionId),
         endedBy: user.id,
       });
@@ -342,7 +387,8 @@ export default function SessionRoom() {
 
           <Box flex={1} overflow="auto" mb={2}>
             {messages.map((m: Message) => {
-              const own = m.sender === user?.username;
+              const senderName = user?.username || user?.name;
+              const own = senderName ? m.sender === senderName : false;
               const t = new Date(m.timestamp);
               const time = Number.isNaN(t.getTime())
                 ? ""
@@ -452,8 +498,8 @@ export default function SessionRoom() {
       {snacks.map((snack: Snack) => (
         <Snackbar
           key={snack.id}
-          open
-          autoHideDuration={4000}
+          open={snack.open}
+          autoHideDuration={2000}
           anchorOrigin={{ vertical: "top", horizontal: "right" }}
           onClose={(
             _event: React.SyntheticEvent | Event,
@@ -462,10 +508,12 @@ export default function SessionRoom() {
             if (reason === "clickaway") return;
             dismissSnack(snack.id);
           }}
+          TransitionProps={{
+            onExited: () => removeSnack(snack.id),
+          }}
         >
           <Alert
             severity={snack.severity}
-            variant="filled"
             action={
               <IconButton
                 size="small"

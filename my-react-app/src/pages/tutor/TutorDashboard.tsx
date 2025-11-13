@@ -1,7 +1,6 @@
 // src/pages/tutor/TutorDashboard.tsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import {
   Box,
   Container,
@@ -17,11 +16,10 @@ import {
   SvgIcon,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
-import { getAuthStateForType, markActiveUserType, clearAuthState } from "../../utils/authStorage";
+import { getAuthStateForType, markActiveUserType, clearAuthState, storeAuthState } from "../../utils/authStorage";
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
-
-axios.defaults.withCredentials = true;
+import api from "../../lib/api";
 
 const socket = getSocket();
 
@@ -56,10 +54,10 @@ export default function TutorDashboard() {
         setAcceptedQueries([]);
         return;
       }
-      const response = await axios.get(
+      const response = await api.get(
         apiPath(`/queries/tutor/${tutorUser.id}/accepted-queries`)
       );
-      setAcceptedQueries(response.data || []);
+      setAcceptedQueries(Array.isArray(response) ? response : []);
     } catch (error) {
       console.error("Error fetching accepted queries:", error);
     }
@@ -67,23 +65,49 @@ export default function TutorDashboard() {
 
   // ✅ Auth check
   useEffect(() => {
+    let isMounted = true;
+
     const fetchTutor = async () => {
       try {
-        const res = await axios.get(apiPath("/me"), {
-          withCredentials: true,
-        });
-        const u = res.data.user;
-        if (u?.userType === "tutor") {
-          setTutorUser(u);
-          markActiveUserType("tutor");
-        } else {
-          navigate("/tutor/login", { replace: true });
+        const res = await api.get(apiPath("/me"));
+        const u = res?.user;
+        const resolvedRole = (u?.userType || u?.role || "").toLowerCase();
+
+        if (resolvedRole === "tutor" && u) {
+          const normalized = { ...u, userType: "tutor" };
+          if (isMounted) {
+            setTutorUser(normalized);
+            markActiveUserType("tutor");
+            storeAuthState("tutor", null, normalized);
+          }
+          return;
         }
-      } catch {
-        navigate("/tutor/login", { replace: true });
+
+        throw new Error("Tutor role not confirmed");
+      } catch (error: any) {
+        const cachedTutor = getAuthStateForType("tutor").user;
+        const message = String(error?.message ?? "").toLowerCase();
+        const unauthorized = message.includes("401") || message.includes("unauthorized");
+
+        if (!cachedTutor || unauthorized) {
+          clearAuthState("tutor");
+          if (isMounted) navigate("/tutor/login", { replace: true });
+          return;
+        }
+
+        console.warn("Falling back to cached tutor auth after /me failure", error);
+        if (isMounted) {
+          setTutorUser(cachedTutor);
+          markActiveUserType("tutor");
+        }
       }
     };
+
     fetchTutor();
+
+    return () => {
+      isMounted = false;
+    };
   }, [navigate]);
 
   // ✅ Socket setup
@@ -106,9 +130,9 @@ export default function TutorDashboard() {
   useEffect(() => {
     const fetchQueries = async () => {
       try {
-    if (!tutorUser?.id) return;
-    const response = await axios.get(apiPath(`/queries/tutor/${tutorUser.id}`));
-        const filtered = (response.data || []).filter(
+        if (!tutorUser?.id) return;
+        const response = await api.get(apiPath(`/queries/tutor/${tutorUser.id}`));
+        const filtered = (Array.isArray(response) ? response : []).filter(
           (item: StudentQuery) => !declinedQueryIdsRef.current.has(item.id)
         );
         setQueries(filtered);
@@ -136,11 +160,11 @@ export default function TutorDashboard() {
         navigate("/tutor/login");
         return;
       }
-      const response = await axios.post(apiPath("/queries/accept"), {
+      const response = await api.post(apiPath("/queries/accept"), {
         queryId,
         tutorId: tutorUser.id.toString(),
       });
-      if (response.data.message === "Query accepted successfully") {
+      if (response?.message === "Query accepted successfully") {
         declinedQueryIdsRef.current.delete(queryId);
         setQueries((prevQueries: StudentQuery[]) =>
           prevQueries.filter((item) => item.id !== queryId)
@@ -156,7 +180,7 @@ export default function TutorDashboard() {
   const handleDeclineQuery = async (queryId: string) => {
     try {
       if (!tutorUser?.id) return;
-      await axios.post(apiPath("/queries/decline"), {
+      await api.post(apiPath("/queries/decline"), {
         queryId,
         tutorId: tutorUser.id,
       });
@@ -172,12 +196,12 @@ export default function TutorDashboard() {
 
   const handleStartSession = async (query: StudentQuery) => {
     try {
-      const response = await axios.post(apiPath("/queries/session"), {
+      const response = await api.post(apiPath("/queries/session"), {
         queryId: query.id,
         tutorId: tutorUser.id,
         studentId: query.studentId,
       });
-      const sessionId = response.data.sessionId;
+      const sessionId = response?.sessionId;
       if (sessionId) navigate(`/session/${sessionId}`);
     } catch (error: any) {
       console.error("Error starting session:", error);
@@ -185,12 +209,18 @@ export default function TutorDashboard() {
     }
   };
 
-  const handleLogout = () => {
-    if (tutorUser?.id) socket.emit("leave-tutor-room", tutorUser.id);
-    clearAuthState("tutor");
-    setTutorUser(null);
-    navigate("/");
-  };
+  const handleLogout = useCallback(async () => {
+    try {
+      if (tutorUser?.id) socket.emit("leave-tutor-room", tutorUser.id);
+      await api.post(apiPath("/logout"), {});
+    } catch (error) {
+      console.error("Tutor logout error:", error);
+    } finally {
+      clearAuthState("tutor");
+      setTutorUser(null);
+      navigate("/tutor/login", { replace: true });
+    }
+  }, [navigate, tutorUser?.id, socket]);
 
   // ✅ UI
   return (

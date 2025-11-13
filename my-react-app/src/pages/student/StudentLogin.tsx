@@ -11,11 +11,9 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import axios from "axios";
 import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
 import { apiPath } from "../../config";
-
-axios.defaults.withCredentials = true;
+import api from "../../lib/api";
 
 type FormState = {
   email: string;
@@ -42,11 +40,9 @@ export default function StudentLogin() {
     setLoading(true);
 
     try {
-      await axios.post(apiPath("/login"), form, { withCredentials: true });
+      await api.post(apiPath("/login"), form);
 
-      const { data } = await axios.get(apiPath("/me"), {
-        withCredentials: true,
-      });
+      const data = await api.get(apiPath("/me"));
 
       const user = data?.user;
       if (!user) {
@@ -68,11 +64,11 @@ export default function StudentLogin() {
       } else {
         navigate("/student/dashboard", { replace: true });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Login failed:", err);
       // Show exact server error message
       const errorMessage =
-        err.response?.data?.message || err.message || "Login failed. Please try again.";
+        err instanceof Error ? err.message : "Login failed. Please try again.";
       setError(errorMessage);
     } finally {
       setLoading(false);
