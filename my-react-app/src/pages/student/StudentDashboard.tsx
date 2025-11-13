@@ -17,6 +17,7 @@ import {
   Snackbar,
   Alert,
   IconButton,
+  SvgIcon,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import CloseIcon from "@mui/icons-material/Close";
@@ -37,6 +38,12 @@ interface Subject {
   subtopics: string[];
 }
 
+type Snack = {
+  id: number;
+  message: string;
+  severity?: "success" | "info" | "error";
+};
+
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const [selectedSubject, setSelectedSubject] = useState<string>("");
@@ -45,14 +52,16 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(false);
   const [studentUser, setStudentUser] = useState<any>(null);
   const [acceptedTutors, setAcceptedTutors] = useState<any[]>([]);
-  const [snacks, setSnacks] = useState<
-    { id: number; message: string; severity?: "success" | "info" | "error" }[]
-  >([]);
+  const [snacks, setSnacks] = useState<Snack[]>([]);
 
   const pushSnack = (
     message: string,
     severity: "success" | "info" | "error" = "info"
-  ) => setSnacks((prev) => [...prev, { id: Date.now(), message, severity }]);
+  ) =>
+    setSnacks((prevSnacks: Snack[]) => [
+      ...prevSnacks,
+      { id: Date.now(), message, severity },
+    ]);
 
   const subjects: Subject[] = [
     {
@@ -113,7 +122,7 @@ export default function StudentDashboard() {
           withCredentials: true,
         });
         if (!cancelled && data?.user) {
-          const u = { ...data.user, userType: "student" };
+          const u = { ...data.user, userType: data.user.role || "student" };
           setStudentUser(u);
           markActiveUserType("student");
           // ✅ Persist (token can be null; backend sets cookie, that's fine)
@@ -175,14 +184,16 @@ export default function StudentDashboard() {
   const handleLogout = async () => {
     try {
       if (studentUser?.id) socket.emit("leave-student-room", studentUser.id);
-  await axios.post(apiPath("/logout"), {});
-    } catch {}
+      await axios.post(apiPath("/logout"), {});
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
     clearAuthState?.("student");
     setStudentUser(null);
     navigate("/student/login", { replace: true });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedSubject || !selectedSubtopic || !query.trim()) {
       pushSnack("Please fill in all fields", "error");
@@ -242,7 +253,8 @@ export default function StudentDashboard() {
         flexDirection: "column",
         justifyContent: "flex-start",
         alignItems: "center",
-        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        backgroundAttachment: "fixed",
         px: 4,
         py: 4,
         overflowX: "hidden",
@@ -328,7 +340,7 @@ export default function StudentDashboard() {
                               gap: 1.5,
                               border: isSelected ? "2px solid" : "1px solid",
                               borderColor: isSelected ? "primary.main" : "divider",
-                              backgroundColor: isSelected ? "primary.50" : "background.paper",
+                              backgroundColor: isSelected ? "primary.dark" : "background.paper",
                             }}
                             variant="outlined"
                           >
@@ -370,7 +382,9 @@ export default function StudentDashboard() {
                   </Typography>
                   <TextField
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+                    onChange={(event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+                      setQuery(event.target.value)
+                    }
                     multiline
                     rows={4}
                     fullWidth
@@ -381,9 +395,26 @@ export default function StudentDashboard() {
                 <Button
                   type="submit"
                   variant="contained"
-                  size="large"
                   disabled={loading}
-                  sx={{ borderRadius: 2 }}
+                  sx={{ 
+                    background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                    borderRadius: "20px",
+                    px: 3,
+                    py: 1.2,
+                    minWidth: "140px",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    fontSize: "0.95rem",
+                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                    "&:hover": {
+                      transform: "scale(1.05)",
+                      boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                      background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                    },
+                    "&:disabled": {
+                      background: "rgba(79, 70, 229, 0.5)",
+                    },
+                  }}
                 >
                   {loading ? "Posting..." : "Post Question"}
                 </Button>
@@ -420,12 +451,12 @@ export default function StudentDashboard() {
                       height: 56,
                     }}
                   >
-                    <svg width="28" height="28" viewBox="0 0 24 24">
+                    <SvgIcon fontSize="large" viewBox="0 0 24 24">
                       <path
-                        fill="currentColor"
                         d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5m0 2c-4 0-8 2-8 6h16c0-4-4-6-8-6Z"
+                        fill="currentColor"
                       />
-                    </svg>
+                    </SvgIcon>
                   </Avatar>
                   <Typography variant="h6">No tutor responses yet</Typography>
                   <Typography color="text.secondary">
@@ -442,7 +473,8 @@ export default function StudentDashboard() {
                         variant="outlined"
                         sx={{
                           borderRadius: 2,
-                          backgroundColor: "success.50",
+                          backgroundColor: "rgba(16, 185, 129, 0.15)",
+                          border: "1px solid rgba(16, 185, 129, 0.3)",
                         }}
                       >
                         <CardContent>
@@ -451,12 +483,28 @@ export default function StudentDashboard() {
                             Rate: {tutor.rate ? `$${tutor.rate}/10min` : "N/A"}
                           </Typography>
                           <Button
-                            fullWidth
                             variant="contained"
-                            color="success"
-                            sx={{ borderRadius: 2 }}
                             disabled={!canEnter}
                             onClick={() => handleStartSession(tutor)}
+                            sx={{ 
+                              background: canEnter 
+                                ? "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)"
+                                : "rgba(79, 70, 229, 0.3)",
+                              borderRadius: "16px",
+                              px: 3,
+                              py: 1.5,
+                              minWidth: "180px",
+                              textTransform: "none",
+                              fontWeight: 600,
+                              transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                              "&:hover": {
+                                transform: canEnter ? "scale(1.05)" : "none",
+                                boxShadow: canEnter ? "0 4px 12px rgba(79, 70, 229, 0.4)" : "none",
+                                background: canEnter 
+                                  ? "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)"
+                                  : "rgba(79, 70, 229, 0.3)",
+                              },
+                            }}
                           >
                             {canEnter ? "Enter Session" : "Waiting for Tutor to Start..."}
                           </Button>
@@ -472,25 +520,29 @@ export default function StudentDashboard() {
       </Grid>
 
       {/* Snackbars */}
-      {snacks.map((s) => (
+      {snacks.map((snack: Snack) => (
         <Snackbar
-          key={s.id}
+          key={snack.id}
           open
           autoHideDuration={4000}
           onClose={() =>
-            setSnacks((prev) => prev.filter((x) => x.id !== s.id))
+            setSnacks((prevSnacks: Snack[]) =>
+              prevSnacks.filter((item) => item.id !== snack.id)
+            )
           }
           anchorOrigin={{ vertical: "top", horizontal: "right" }}
         >
           <Alert
-            severity={s.severity}
+            severity={snack.severity}
             variant="filled"
             action={
               <IconButton
                 size="small"
                 color="inherit"
                 onClick={() =>
-                  setSnacks((prev) => prev.filter((x) => x.id !== s.id))
+                  setSnacks((prevSnacks: Snack[]) =>
+                    prevSnacks.filter((item) => item.id !== snack.id)
+                  )
                 }
               >
                 <CloseIcon fontSize="small" />
@@ -498,7 +550,7 @@ export default function StudentDashboard() {
             }
             sx={{ boxShadow: 3, borderRadius: 2 }}
           >
-            {s.message}
+            {snack.message}
           </Alert>
         </Snackbar>
       ))}

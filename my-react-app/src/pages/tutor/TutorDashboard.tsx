@@ -14,11 +14,14 @@ import {
   Stack,
   Divider,
   Chip,
+  SvgIcon,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { getAuthStateForType, markActiveUserType, clearAuthState } from "../../utils/authStorage";
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
+
+axios.defaults.withCredentials = true;
 
 const socket = getSocket();
 
@@ -103,8 +106,8 @@ export default function TutorDashboard() {
   useEffect(() => {
     const fetchQueries = async () => {
       try {
-        if (!tutorUser?.id) return;
-  const response = await axios.get(apiPath(`/queries/tutor/${tutorUser.id}`));
+    if (!tutorUser?.id) return;
+    const response = await axios.get(apiPath(`/queries/tutor/${tutorUser.id}`));
         const filtered = (response.data || []).filter(
           (item: StudentQuery) => !declinedQueryIdsRef.current.has(item.id)
         );
@@ -139,7 +142,9 @@ export default function TutorDashboard() {
       });
       if (response.data.message === "Query accepted successfully") {
         declinedQueryIdsRef.current.delete(queryId);
-        setQueries((prev) => prev.filter((q) => q.id !== queryId));
+        setQueries((prevQueries: StudentQuery[]) =>
+          prevQueries.filter((item) => item.id !== queryId)
+        );
         await fetchAcceptedQueries();
       }
     } catch (error: any) {
@@ -156,7 +161,9 @@ export default function TutorDashboard() {
         tutorId: tutorUser.id,
       });
       declinedQueryIdsRef.current.add(queryId);
-      setQueries((prev) => prev.filter((q) => q.id !== queryId));
+      setQueries((prevQueries: StudentQuery[]) =>
+        prevQueries.filter((item) => item.id !== queryId)
+      );
     } catch (error: any) {
       console.error("Error declining query:", error);
       alert("Failed to decline query. Please try again.");
@@ -195,7 +202,8 @@ export default function TutorDashboard() {
         flexDirection: "column",
         justifyContent: "flex-start",
         alignItems: "center",
-        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        backgroundAttachment: "fixed",
         py: 6,
       }}
     >
@@ -273,12 +281,12 @@ export default function TutorDashboard() {
                     <Avatar
                       sx={{ bgcolor: "grey.100", color: "grey.500", width: 56, height: 56 }}
                     >
-                      <svg width="28" height="28" viewBox="0 0 24 24">
+                      <SvgIcon fontSize="large" viewBox="0 0 24 24">
                         <path
-                          fill="currentColor"
                           d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5m0 2c-4 0-8 2-8 6h16c0-4-4-6-8-6Z"
+                          fill="currentColor"
                         />
-                      </svg>
+                      </SvgIcon>
                     </Avatar>
                     <Typography variant="h6">No new queries</Typography>
                     <Typography color="text.secondary">
@@ -287,29 +295,58 @@ export default function TutorDashboard() {
                   </Box>
                 ) : (
                   <Stack spacing={2}>
-                    {queries.map((q) => (
-                      <Card key={q.id} variant="outlined" sx={{ borderRadius: 2 }}>
+                    {queries.map((query: StudentQuery) => (
+                      <Card key={query.id} variant="outlined" sx={{ borderRadius: 2 }}>
                         <CardContent>
                           <Stack spacing={0.5}>
-                            <Typography variant="h6">{q.studentName}</Typography>
+                            <Typography variant="h6">{query.studentName}</Typography>
                             <Typography variant="body2" color="text.secondary">
-                              {q.subject} • {q.subtopic}
+                              {query.subject} • {query.subtopic}
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                              {q.query}
+                              {query.query}
                             </Typography>
                             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                               <Button
                                 variant="contained"
-                                color="success"
-                                onClick={() => handleAcceptQuery(q.id)}
+                                onClick={() => handleAcceptQuery(query.id)}
+                                sx={{
+                                  background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                                  borderRadius: "12px",
+                                  px: 3,
+                                  py: 1,
+                                  minWidth: "100px",
+                                  textTransform: "none",
+                                  fontWeight: 600,
+                                  transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                                  "&:hover": {
+                                    transform: "scale(1.05)",
+                                    boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                                    background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                                  },
+                                }}
                               >
                                 Accept
                               </Button>
                               <Button
                                 variant="outlined"
-                                color="error"
-                                onClick={() => handleDeclineQuery(q.id)}
+                                onClick={() => handleDeclineQuery(query.id)}
+                                sx={{
+                                  border: "1px solid rgba(239, 68, 68, 0.5)",
+                                  color: "#ef4444",
+                                  borderRadius: "12px",
+                                  px: 3,
+                                  py: 1,
+                                  minWidth: "100px",
+                                  textTransform: "none",
+                                  fontWeight: 600,
+                                  transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                                  "&:hover": {
+                                    transform: "scale(1.05)",
+                                    borderColor: "#ef4444",
+                                    backgroundColor: "rgba(239, 68, 68, 0.1)",
+                                  },
+                                }}
                               >
                                 Decline
                               </Button>
@@ -347,12 +384,12 @@ export default function TutorDashboard() {
                     <Avatar
                       sx={{ bgcolor: "grey.100", color: "grey.500", width: 56, height: 56 }}
                     >
-                      <svg width="28" height="28" viewBox="0 0 24 24">
+                      <SvgIcon fontSize="large" viewBox="0 0 24 24">
                         <path
-                          fill="currentColor"
                           d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5m0 2c-4 0-8 2-8 6h16c0-4-4-6-8-6Z"
+                          fill="currentColor"
                         />
-                      </svg>
+                      </SvgIcon>
                     </Avatar>
                     <Typography variant="h6">No accepted queries</Typography>
                     <Typography color="text.secondary">
@@ -361,27 +398,44 @@ export default function TutorDashboard() {
                   </Box>
                 ) : (
                   <Stack spacing={2}>
-                    {acceptedQueries.map((q) => (
+                    {acceptedQueries.map((query: StudentQuery) => (
                       <Card
-                        key={q.id}
+                        key={query.id}
                         variant="outlined"
-                        sx={{ borderRadius: 2, backgroundColor: "success.50" }}
+                        sx={{ 
+                          borderRadius: 2, 
+                          backgroundColor: "rgba(16, 185, 129, 0.15)",
+                          border: "1px solid rgba(16, 185, 129, 0.3)",
+                        }}
                       >
                         <CardContent>
                           <Stack spacing={0.5}>
-                            <Typography variant="h6">{q.studentName}</Typography>
+                            <Typography variant="h6">{query.studentName}</Typography>
                             <Typography variant="body2" color="text.secondary">
-                              {q.subject} • {q.subtopic}
+                              {query.subject} • {query.subtopic}
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                              {q.query}
+                              {query.query}
                             </Typography>
                             <Button
-                              fullWidth
                               variant="contained"
-                              color="success"
-                              sx={{ mt: 2 }}
-                              onClick={() => handleStartSession(q)}
+                              sx={{ 
+                                mt: 2,
+                                background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                                borderRadius: "16px",
+                                px: 3,
+                                py: 1.5,
+                                minWidth: "180px",
+                                textTransform: "none",
+                                fontWeight: 600,
+                                transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                                "&:hover": {
+                                  transform: "scale(1.05)",
+                                  boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                                  background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                                },
+                              }}
+                              onClick={() => handleStartSession(query)}
                             >
                               Start Session
                             </Button>

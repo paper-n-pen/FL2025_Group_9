@@ -1,5 +1,12 @@
-# MicroTutor - On-Demand Micro-Tutoring Platform
+# FL2025: Group 9 MicroTutor - On-Demand Micro-Tutoring Platform
 
+### Team Members
+Yikang Wang, Mehak Sharma, and Sangwon Bae. 
+
+### TA
+Yiren Kang
+
+### Objectives
 A real-time tutoring platform that connects students with tutors for instant help in specific subjects. Students can post queries, tutors can accept them, and they can collaborate using an interactive whiteboard and chat system.
 
 ## Features
@@ -100,6 +107,33 @@ FL2025-Semester-Project/
    ```
 
 ### Running the Application
+
+#### Local Run (Quick Start)
+
+1. **Start database**
+   ```bash
+   docker compose up -d db
+   ```
+
+2. **Start backend**
+   ```bash
+   docker compose up -d --build backend
+   ```
+   Or manually:
+   ```bash
+   cd backend
+   PORT=3000 DATABASE_URL=postgresql://postgres:password@localhost:5432/mydatabase npm run dev
+   ```
+   The backend will run on `http://localhost:3000`
+
+3. **Start frontend (optional - for local dev)**
+   ```bash
+   cd my-react-app
+   VITE_API_URL=http://localhost:3000 npm run dev
+   ```
+   The frontend will run on `http://localhost:5173`
+
+#### Docker Setup (All Services)
 
 1. **Start the backend server**
    ```bash

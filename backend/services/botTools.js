@@ -29,7 +29,8 @@ async function getTutorByName(name) {
       : null;
 
     // Calculate hourly rate (rate_per_10_min * 6)
-    const pricePerHour = ratePer10Min !== null ? ratePer10Min * 6 : null;
+    // Round to nearest whole number to show exactly what tutor set
+    const pricePerHour = ratePer10Min !== null ? Math.round(ratePer10Min * 6) : null;
 
     // Get review count from sessions (approximate)
     const reviewResult = await pool.query(
@@ -86,11 +87,14 @@ async function listTutorsBySubject(subject, limit = 5) {
       return await listAllTutors(limit);
     }
 
-    // Normalize subject (trim, lowercase for matching)
-    const normalizedSubject = subject.trim().toLowerCase();
-    console.log(`[DB_QUERY] Searching for tutors with subject: "${normalizedSubject}"`);
+    // Normalize subject - preserve case for special chars like C++, C#
+    // But also try lowercase version for matching
+    const normalizedSubject = subject.trim();
+    const lowerSubject = normalizedSubject.toLowerCase();
+    console.log(`[DB_QUERY] Searching for tutors with subject: "${normalizedSubject}" (lowercase: "${lowerSubject}")`);
 
     // Query using TEXT[] array operations - case-insensitive matching
+    // Handle special characters like +, # by using ILIKE and multiple matching strategies
     const result = await pool.query(
       `SELECT 
          u.id,
@@ -103,29 +107,56 @@ async function listTutorsBySubject(subject, limit = 5) {
        LEFT JOIN sessions s ON s.tutor_id = u.id
        WHERE u.user_type = 'tutor'
        AND (
+         -- Exact match (case-insensitive)
          EXISTS (
            SELECT 1 FROM unnest(u.specialties) AS spec
            WHERE LOWER(TRIM(spec)) = LOWER($1)
          )
+         -- Pattern match with lowercase (case-insensitive)
          OR EXISTS (
            SELECT 1 FROM unnest(u.specialties) AS spec
            WHERE LOWER(TRIM(spec)) LIKE '%' || LOWER($1) || '%'
          )
+         -- Pattern match preserving case (for C++ vs c++)
+         OR EXISTS (
+           SELECT 1 FROM unnest(u.specialties) AS spec
+           WHERE TRIM(spec) ILIKE '%' || $1 || '%'
+         )
+         -- Also try exact match with original case
+         OR EXISTS (
+           SELECT 1 FROM unnest(u.specialties) AS spec
+           WHERE TRIM(spec) = $2
+         )
        )
        GROUP BY u.id, u.username, u.specialties, u.rate_per_10_min, u.bio
        ORDER BY u.rate_per_10_min ASC NULLS LAST, completed_sessions DESC
-       LIMIT $2`,
-      [normalizedSubject, limit]
+       LIMIT $3`,
+      [lowerSubject, normalizedSubject, limit]
     );
 
     console.log(`[DB_ROWS] Found ${result.rows.length} tutors for subject "${normalizedSubject}"`);
 
     return result.rows.map(row => {
-      const specialties = Array.isArray(row.specialties) ? row.specialties : [];
+      // The query uses 'u.specialties as subjects', so access row.subjects (not row.specialties)
+      // Handle PostgreSQL array - could be array or string representation
+      let specialties = [];
+      const rawSubjects = row.subjects; // This is the alias from the query
+      
+      if (Array.isArray(rawSubjects)) {
+        specialties = rawSubjects;
+      } else if (rawSubjects && typeof rawSubjects === 'string') {
+        // PostgreSQL might return array as string like "{C++}" or "{Python,Java}"
+        const cleaned = rawSubjects.replace(/[{}]/g, '');
+        specialties = cleaned ? cleaned.split(',').map(s => s.trim()).filter(Boolean) : [];
+      }
+      
+      console.log(`  📋 Tutor "${row.name}": specialties=${JSON.stringify(specialties)} (raw: ${JSON.stringify(rawSubjects)}, type: ${typeof rawSubjects})`);
+      
       const ratePer10Min = row.rate_per_10_min !== null && row.rate_per_10_min !== undefined
         ? Number(row.rate_per_10_min)
         : null;
-      const pricePerHour = ratePer10Min !== null ? ratePer10Min * 6 : null;
+      // Round to nearest whole number to show exactly what tutor set
+      const pricePerHour = ratePer10Min !== null ? Math.round(ratePer10Min * 6) : null;
 
       return {
         name: row.name || row.username,
@@ -258,7 +289,8 @@ async function listAllTutors(limit = 10) {
       const ratePer10Min = row.rate_per_10_min !== null && row.rate_per_10_min !== undefined
         ? Number(row.rate_per_10_min)
         : null;
-      const pricePerHour = ratePer10Min !== null ? ratePer10Min * 6 : null;
+      // Round to nearest whole number to show exactly what tutor set
+      const pricePerHour = ratePer10Min !== null ? Math.round(ratePer10Min * 6) : null;
 
       return {
         name: row.username,

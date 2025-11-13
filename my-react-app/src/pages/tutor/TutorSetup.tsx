@@ -8,8 +8,13 @@ import {
   Paper,
   Link as MuiLink,
   Chip,
-  Autocomplete,
+  Alert,
+  CircularProgress,
 } from "@mui/material";
+import Autocomplete, {
+  type AutocompleteRenderInputParams,
+  type AutocompleteGetTagProps,
+} from "@mui/material/Autocomplete";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { apiPath } from "../../config";
@@ -24,50 +29,85 @@ const specialtiesList = [
   "Organic Chemistry", "Inorganic Chemistry", "Physical Chemistry", "Biochemistry"
 ];
 
+type TutorSetupForm = {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  education: string;
+  specialties: string[];
+  price_per_hour: string;
+};
+
 export default function TutorSetup() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({
-    fullName: "",
+  const [form, setForm] = useState<TutorSetupForm>({
+    name: "",
     email: "",
     password: "",
     confirmPassword: "",
     education: "",
-    specialties: [] as string[],
-    rate: "",
+    specialties: [],
+    price_per_hour: "",
   });
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setForm((prevForm: TutorSetupForm) => ({
+      ...prevForm,
+      [event.target.name]: event.target.value,
+    }));
+    setError(""); // Clear error on input change
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setError("");
+    setSuccess("");
+    setLoading(true);
 
+    // Client-side validation
     if (form.password !== form.confirmPassword) {
       setError("Passwords do not match");
+      setLoading(false);
+      return;
+    }
+
+    if (form.password.length < 6) {
+      setError("Password must be at least 6 characters");
+      setLoading(false);
       return;
     }
 
     try {
+      const hourlyRate = form.price_per_hour ? parseFloat(form.price_per_hour) : 0;
+      const ratePerTen = Number.isFinite(hourlyRate) ? Number((hourlyRate / 6).toFixed(2)) : 0;
+
       await axios.post(apiPath("/register"), {
-        username: form.fullName,
+        username: form.name,
         email: form.email,
         password: form.password,
         user_type: "tutor",
-        education: form.education,
-        specialties: form.specialties.join(", "),
-        rate_per_10_min: form.rate,
+        education: form.education || undefined,
+        specialties: form.specialties,
+        rate: ratePerTen,
+        rate_per_10_min: ratePerTen,
       });
 
-      navigate("/tutor/login");
+      setSuccess("✅ Account created successfully! Redirecting to login...");
+      setTimeout(() => {
+        navigate("/tutor/login", { replace: true });
+      }, 1200);
     } catch (err: any) {
-      console.error("Registration failed:", err);
-      setError(
-        err.response?.data?.message ||
-          "Registration failed. Please try again."
-      );
+      console.error("Registration error:", err);
+      // Show exact server error message
+      const errorMessage =
+        err.response?.data?.message || err.message || "Registration failed. Please try again.";
+      setError(`❌ ${errorMessage}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -79,7 +119,8 @@ export default function TutorSetup() {
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        backgroundAttachment: "fixed",
         p: 2,
       }}
     >
@@ -105,20 +146,23 @@ export default function TutorSetup() {
           <TextField
             fullWidth
             label="Full Name"
-            name="fullName"
-            value={form.fullName}
+            name="name"
+            value={form.name}
             onChange={handleChange}
             margin="normal"
             required
+            disabled={loading}
           />
           <TextField
             fullWidth
             label="Email Address"
             name="email"
+            type="email"
             value={form.email}
             onChange={handleChange}
             margin="normal"
             required
+            disabled={loading}
           />
           <TextField
             fullWidth
@@ -129,6 +173,8 @@ export default function TutorSetup() {
             onChange={handleChange}
             margin="normal"
             required
+            disabled={loading}
+            helperText="Must be at least 6 characters"
           />
           <TextField
             fullWidth
@@ -139,6 +185,7 @@ export default function TutorSetup() {
             onChange={handleChange}
             margin="normal"
             required
+            disabled={loading}
           />
           <TextField
             fullWidth
@@ -147,6 +194,7 @@ export default function TutorSetup() {
             value={form.education}
             onChange={handleChange}
             margin="normal"
+            disabled={loading}
           />
 
           {/* ✅ Autocomplete with search + multiple selections */}
@@ -155,10 +203,20 @@ export default function TutorSetup() {
             freeSolo // allows tutors to type custom specialties
             options={specialtiesList}
             value={form.specialties}
-            onChange={(event, newValue) => {
-              setForm({ ...form, specialties: newValue });
+            onChange={(
+              _event: React.SyntheticEvent,
+              newValue: string[]
+            ) => {
+              setForm((prevForm: TutorSetupForm) => ({
+                ...prevForm,
+                specialties: newValue,
+              }));
             }}
-            renderTags={(value: readonly string[], getTagProps) =>
+            disabled={loading}
+            renderTags={(
+              value: readonly string[],
+              getTagProps: AutocompleteGetTagProps
+            ) =>
               value.map((option: string, index: number) => (
                 <Chip
                   variant="outlined"
@@ -169,7 +227,7 @@ export default function TutorSetup() {
                 />
               ))
             }
-            renderInput={(params) => (
+            renderInput={(params: AutocompleteRenderInputParams) => (
               <TextField
                 {...params}
                 label="Specialties"
@@ -182,30 +240,62 @@ export default function TutorSetup() {
 
           <TextField
             fullWidth
-            label="Rate per 10 minutes ($)"
-            name="rate"
+            label="Price per Hour ($)"
+            name="price_per_hour"
             type="number"
-            value={form.rate}
+            value={form.price_per_hour}
             onChange={handleChange}
             margin="normal"
+            disabled={loading}
+            inputProps={{ min: 0, step: 0.01 }}
           />
 
+          {error && (
+            <Alert severity="error" sx={{ mt: 2, textAlign: "left" }}>
+              {error}
+            </Alert>
+          )}
+
+          {success && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              {success}
+            </Alert>
+          )}
+
           <Button
-            fullWidth
             type="submit"
             variant="contained"
-            color="success"
-            size="large"
-            sx={{ mt: 3 }}
+            disabled={loading}
+            sx={{ 
+              mt: 3,
+              background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+              borderRadius: "16px",
+              px: 4,
+              py: 1.5,
+              minWidth: "200px",
+              textTransform: "none",
+              fontWeight: 600,
+              fontSize: "1rem",
+              transition: "transform 0.2s ease, box-shadow 0.2s ease",
+              "&:hover": {
+                transform: "scale(1.05)",
+                boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+              },
+              "&:disabled": {
+                background: "rgba(79, 70, 229, 0.5)",
+              },
+            }}
           >
-            Create Account
+            {loading ? (
+              <>
+                <CircularProgress size={20} sx={{ mr: 1 }} color="inherit" />
+                Creating Account...
+              </>
+            ) : (
+              "Create Account"
+            )}
           </Button>
-
-          {error && (
-            <Typography color="error" mt={2}>
-              {error}
-            </Typography>
-          )}
         </Box>
 
         <Typography variant="body2" mt={3}>

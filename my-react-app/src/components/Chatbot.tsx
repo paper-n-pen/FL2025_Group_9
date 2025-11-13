@@ -47,10 +47,10 @@ export default function Chatbot() {
       // Send last ~12 messages (to keep context manageable)
       const messagesToSend = updatedMessages.slice(-12);
       
-      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
       const response = await axios.post(`${apiUrl}/api/chat`, {
         messages: messagesToSend,
-      });
+      }, { withCredentials: true });
 
       const assistantMessage: Message = {
         role: 'assistant',
@@ -102,7 +102,7 @@ export default function Chatbot() {
             width: '60px',
             height: '60px',
             borderRadius: '50%',
-            backgroundColor: '#1976d2',
+            backgroundColor: '#4f46e5',
             color: 'white',
             border: 'none',
             cursor: 'pointer',
@@ -128,7 +128,8 @@ export default function Chatbot() {
             right: '20px',
             width: '360px',
             height: '480px',
-            backgroundColor: 'white',
+            backgroundColor: '#1e293b',
+            border: '1px solid rgba(148, 163, 184, 0.2)',
             borderRadius: '8px',
             boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
             display: 'flex',
@@ -140,7 +141,7 @@ export default function Chatbot() {
           {/* Header */}
           <div
             style={{
-              backgroundColor: '#1976d2',
+              backgroundColor: '#4f46e5',
               color: 'white',
               padding: '16px',
               display: 'flex',
@@ -191,8 +192,8 @@ export default function Chatbot() {
                   padding: '10px 14px',
                   borderRadius: '12px',
                   backgroundColor:
-                    msg.role === 'user' ? '#1976d2' : '#f0f0f0',
-                  color: msg.role === 'user' ? 'white' : 'black',
+                    msg.role === 'user' ? '#4f46e5' : '#334155',
+                  color: msg.role === 'user' ? 'white' : '#f1f5f9',
                   wordWrap: 'break-word',
                   fontSize: '14px',
                   lineHeight: '1.4',
@@ -207,8 +208,8 @@ export default function Chatbot() {
                   alignSelf: 'flex-start',
                   padding: '10px 14px',
                   borderRadius: '12px',
-                  backgroundColor: '#f0f0f0',
-                  color: '#666',
+                  backgroundColor: '#334155',
+                  color: '#cbd5e1',
                   fontSize: '14px',
                 }}
               >
@@ -222,7 +223,8 @@ export default function Chatbot() {
           <div
             style={{
               padding: '12px',
-              borderTop: '1px solid #e0e0e0',
+              borderTop: '1px solid rgba(148, 163, 184, 0.2)',
+              backgroundColor: '#1e293b',
               display: 'flex',
               gap: '8px',
             }}
@@ -238,10 +240,12 @@ export default function Chatbot() {
               style={{
                 flex: 1,
                 padding: '10px',
-                border: '1px solid #ddd',
+                border: '1px solid rgba(148, 163, 184, 0.2)',
                 borderRadius: '20px',
                 fontSize: '14px',
                 outline: 'none',
+                backgroundColor: '#334155',
+                color: '#f1f5f9',
               }}
             />
             <button
@@ -249,7 +253,7 @@ export default function Chatbot() {
               disabled={isLoading || !input.trim()}
               style={{
                 padding: '10px 20px',
-                backgroundColor: '#1976d2',
+                backgroundColor: '#4f46e5',
                 color: 'white',
                 border: 'none',
                 borderRadius: '20px',

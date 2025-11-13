@@ -27,7 +27,6 @@ export default function AppLayout() {
 
   useEffect(() => {
     if (!loading && !user) {
-      // ✅ Detect if the user was trying to access a tutor route
       const wantsTutorArea = location.pathname.startsWith("/tutor");
       const redirectTo = wantsTutorArea ? "/tutor/login" : "/student/login";
       navigate(redirectTo, { replace: true });

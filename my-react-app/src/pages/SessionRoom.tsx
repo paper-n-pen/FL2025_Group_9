@@ -251,28 +251,47 @@ export default function SessionRoom() {
       sx={{
         minHeight: "100vh",
         width: "100vw",
-        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        backgroundAttachment: "fixed",
         display: "flex",
         flexDirection: "column",
       }}
     >
       {/* Top bar */}
-      <Box sx={{ bgcolor: "white", boxShadow: 1, borderBottom: "1px solid", borderColor: "divider" }}>
+      <Box sx={{ 
+        bgcolor: "background.paper",
+        backgroundImage: "linear-gradient(to bottom right, #1e293b, #0f172a)",
+        boxShadow: 1, 
+        borderBottom: "1px solid", 
+        borderColor: "rgba(148, 163, 184, 0.2)" 
+      }}>
         <Container
           maxWidth={containerMax}
           sx={{ py: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}
         >
           <Box display="flex" alignItems="center" gap={2}>
             <Avatar sx={{ bgcolor: "primary.main" }}>MT</Avatar>
-            <Typography variant="h6" fontWeight="bold">
+            <Typography variant="h6" fontWeight="bold" color="text.primary">
               Session Room
             </Typography>
           </Box>
           <Button
             variant="contained"
-            color="error"
             onClick={handleEndSession}
-            sx={{ fontWeight: 600 }}
+            sx={{
+              fontWeight: 600,
+              background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+              borderRadius: "12px",
+              px: 3,
+              py: 1,
+              textTransform: "none",
+              transition: "transform 0.2s ease, box-shadow 0.2s ease",
+              "&:hover": {
+                transform: "scale(1.05)",
+                boxShadow: "0 4px 12px rgba(239, 68, 68, 0.4)",
+                background: "linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)",
+              },
+            }}
             disabled={!user}
           >
             End Session
@@ -338,15 +357,20 @@ export default function SessionRoom() {
                   <Box
                     sx={{
                       px: 2,
-                      py: 1,
-                      borderRadius: 2,
-                      bgcolor: own ? "primary.main" : "grey.200",
-                      color: own ? "common.white" : "text.primary",
+                      py: 1.5,
+                      borderRadius: "12px",
+                      background: own 
+                        ? "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)"
+                        : "rgba(51, 65, 85, 0.8)",
+                      color: "white",
                       maxWidth: "80%",
+                      boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
                     }}
                   >
-                    <Typography variant="body2">{m.text}</Typography>
-                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                    <Typography variant="body2" sx={{ color: "white", fontWeight: 500 }}>
+                      {m.text}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: "rgba(255, 255, 255, 0.8)", display: "block", mt: 0.5 }}>
                       {m.sender}
                       {time ? ` • ${time}` : ""}
                     </Typography>
@@ -367,7 +391,25 @@ export default function SessionRoom() {
                 setNewMessage(e.target.value)
               }
             />
-            <Button variant="contained" type="submit">
+            <Button 
+              variant="contained" 
+              type="submit"
+              sx={{
+                background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                borderRadius: "20px",
+                px: 3,
+                py: 1,
+                minWidth: "auto",
+                textTransform: "none",
+                fontWeight: 600,
+                transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                "&:hover": {
+                  transform: "scale(1.05)",
+                  boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                  background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                },
+              }}
+            >
               Send
             </Button>
           </Box>

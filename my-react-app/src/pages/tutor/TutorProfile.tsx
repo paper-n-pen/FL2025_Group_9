@@ -27,16 +27,26 @@ import {
 import { apiPath } from "../../config";
 
 export default function TutorProfile() {
-  const [formData, setFormData] = useState({
+  type TutorProfileForm = {
+    bio: string;
+    education: string;
+    specialties: string[];
+    ratePer10Min: string;
+  };
+
+  const [formData, setFormData] = useState<TutorProfileForm>({
     bio: "",
     education: "",
     specialties: [] as string[],
     ratePer10Min: "",
   });
   const [loading, setLoading] = useState(false);
-  const [snacks, setSnacks] = useState<
-    { id: number; message: string; severity?: "success" | "info" | "error" }[]
-  >([]);
+  type Snack = {
+    id: number;
+    message: string;
+    severity?: "success" | "info" | "error";
+  };
+  const [snacks, setSnacks] = useState<Snack[]>([]);
   const navigate = useNavigate();
 
   const availableSpecialties = [
@@ -85,31 +95,40 @@ export default function TutorProfile() {
     message: string,
     severity: "success" | "info" | "error" = "info"
   ) => {
-    setSnacks((prev) => [...prev, { id: Date.now(), message, severity }]);
+    setSnacks((prevSnacks: Snack[]) => [
+      ...prevSnacks,
+      { id: Date.now(), message, severity },
+    ]);
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = event.target;
     if (name === "ratePer10Min") {
       if (value === "" || /^\d*(?:\.\d{0,2})?$/.test(value)) {
-        setFormData((prev) => ({ ...prev, ratePer10Min: value }));
+        setFormData((prev: TutorProfileForm) => ({
+          ...prev,
+          ratePer10Min: value,
+        }));
       }
     } else {
-      setFormData((prev) => ({ ...prev, [name]: value }));
+      setFormData((prev: TutorProfileForm) => ({
+        ...prev,
+        [name]: value,
+      }));
     }
   };
 
   const handleSpecialtyToggle = (specialty: string) => {
-    setFormData((prev) => ({
+    setFormData((prev: TutorProfileForm) => ({
       ...prev,
       specialties: prev.specialties.includes(specialty)
-        ? prev.specialties.filter((s) => s !== specialty)
+        ? prev.specialties.filter((current: string) => current !== specialty)
         : [...prev.specialties, specialty],
     }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setLoading(true);
     try {
       const stored = getAuthStateForType("tutor");
@@ -126,7 +145,7 @@ export default function TutorProfile() {
         ...formData,
         ratePer10Min: normalizedRate,
         userId: stored.user.id,
-      });
+      }, { withCredentials: true });
 
       const updatedUser = {
         ...stored.user,
@@ -153,7 +172,8 @@ export default function TutorProfile() {
       sx={{
         minHeight: "100vh",
         width: "100%",
-        background: "linear-gradient(to bottom right, #f5f7ff, #e8f0ff)",
+        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        backgroundAttachment: "fixed",
         display: "flex",
         justifyContent: "center",
         alignItems: "flex-start",
@@ -210,13 +230,13 @@ export default function TutorProfile() {
             borderRadius: 4,
             width: "100%",
             boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-            backgroundColor: "#fff",
+            backgroundColor: "#1e293b",
           }}
         >
           <CardHeader
             title="Edit Your Profile"
             sx={{
-              backgroundColor: "#f9f9f9",
+              backgroundColor: "#334155",
               py: 2,
               px: 3,
               borderTopLeftRadius: 4,
@@ -304,10 +324,26 @@ export default function TutorProfile() {
                 </Button>
                 <Button
                   variant="contained"
-                  color="success"
                   type="submit"
                   disabled={loading}
-                  sx={{ borderRadius: 2, fontWeight: 600 }}
+                  sx={{ 
+                    background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                    borderRadius: "16px",
+                    px: 4,
+                    py: 1.5,
+                    minWidth: "180px",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                    "&:hover": {
+                      transform: "scale(1.05)",
+                      boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                      background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                    },
+                    "&:disabled": {
+                      background: "rgba(79, 70, 229, 0.5)",
+                    },
+                  }}
                 >
                   {loading ? "Updating..." : "Update Profile"}
                 </Button>
@@ -318,18 +354,20 @@ export default function TutorProfile() {
       </Container>
 
       {/* Snackbars */}
-      {snacks.map((s) => (
+      {snacks.map((snack: Snack) => (
         <Snackbar
-          key={s.id}
+          key={snack.id}
           open
           autoHideDuration={4000}
           onClose={() =>
-            setSnacks((prev) => prev.filter((x) => x.id !== s.id))
+            setSnacks((prevSnacks: Snack[]) =>
+              prevSnacks.filter((item) => item.id !== snack.id)
+            )
           }
           anchorOrigin={{ vertical: "top", horizontal: "right" }}
         >
           <Alert
-            severity={s.severity}
+            severity={snack.severity}
             variant="filled"
             action={
               <IconButton
@@ -337,7 +375,9 @@ export default function TutorProfile() {
                 aria-label="close"
                 color="inherit"
                 onClick={() =>
-                  setSnacks((prev) => prev.filter((x) => x.id !== s.id))
+                  setSnacks((prevSnacks: Snack[]) =>
+                    prevSnacks.filter((item) => item.id !== snack.id)
+                  )
                 }
               >
                 <CloseIcon fontSize="small" />
@@ -345,7 +385,7 @@ export default function TutorProfile() {
             }
             sx={{ boxShadow: 3, borderRadius: 2 }}
           >
-            {s.message}
+            {snack.message}
           </Alert>
         </Snackbar>
       ))}

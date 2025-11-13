@@ -7,7 +7,7 @@ const http = require("http");
 require("dotenv").config();
 
 const { pool } = require("./db");
-const authRoutes = require("./routes/auth"); // ✅ handles /register, /login, /me, /logout
+const authRoutes = require("./routes/auth");
 const { router: queriesRoutes, setIO } = require("./routes/queries");
 const passwordResetRoutes = require("./routes/passwordReset");
 const aiRoutes = require("./routes/ai");

@@ -2,10 +2,12 @@
 // Intent detection for chatbot queries
 
 // Common words to exclude when extracting tutor names or subjects
+// NOTE: We should NOT exclude actual subject names (like 'c++', 'python', etc.) - these are valid subjects!
+// Only exclude stop words/phrases that are not subjects.
 const excludeWords = new Set([
   'hourly', 'rate', 'price', 'fee', 'fees', 'cost', 'tutor', 'tutors', 'tutor\'s',
   'what', 'is', 'the', 'for', 'of', 'show', 'list', 'find', 'get', 'tell', 'me',
-  'python', 'java', 'javascript', 'c++', 'cpp', 'c#', 'math', 'physics', 'chemistry',
+  // Removed actual subjects from exclude list: 'python', 'java', 'javascript', 'c++', 'cpp', 'c#', 'math', 'physics', 'chemistry'
   'computer', 'science', 'subject', 'subjects', 'teaching', 'available', 'registered'
 ]);
 
@@ -139,11 +141,21 @@ function extractSubject(text) {
       return value;
     }
   }
+  
+  // Special case: if the text itself is a known subject (like "C++"), return it as-is
+  // This handles cases where the subject is already normalized
+  const textUpper = text.trim();
+  for (const [key, value] of Object.entries(subjectMap)) {
+    if (textUpper === value || textUpper === key) {
+      return value;
+    }
+  }
 
   // Try to extract subject after keywords (case-insensitive)
+  // Allow special characters: +, #, ., etc. for subjects like C++, C#
   const patterns = [
-    /(?:for|in|teaching|teach|subject|subjects|registered\s+for)\s+([a-zA-Z][a-zA-Z\s]{1,30})/i,
-    /([a-zA-Z][a-zA-Z\s]{1,30})\s+(?:tutor|tutors|subject|subjects)/i,
+    /(?:for|in|teaching|teach|subject|subjects|registered\s+for)\s+([a-zA-Z0-9+#.\s]{1,30})/i,
+    /([a-zA-Z0-9+#.\s]{1,30})\s+(?:tutor|tutors|subject|subjects)/i,
   ];
 
   for (const pattern of patterns) {
@@ -200,10 +212,39 @@ function detectIntent(userText) {
     }
   }
 
+  // PRIORITY: "tutor for <subject>" or "tell me the tutor for <subject>" - most common pattern
+  // Match "tutor for X" where X is the subject (must come after "for")
+  // Use non-greedy and capture until end or punctuation
+  const tutorForPattern = /tutor\s+for\s+([a-zA-Z0-9+#.]+?)(?:\s|$|\.|\?|,|$)/i;
+  const tutorForMatch = userText.match(tutorForPattern);
+  if (tutorForMatch && tutorForMatch[1]) {
+    let potentialSubject = tutorForMatch[1].trim();
+    console.log(`🔍 Pattern "tutor for" matched: captured "${potentialSubject}" from "${userText}"`);
+    // Don't include common words that might be captured
+    if (potentialSubject && !excludeWords.has(potentialSubject.toLowerCase())) {
+      // Try extractSubject first to normalize (e.g., "cpp" -> "C++")
+      let normalizedSubject = extractSubject(potentialSubject);
+      // If extractSubject returns null, use the captured subject directly (for special chars like "C++")
+      if (!normalizedSubject) {
+        normalizedSubject = potentialSubject;
+      }
+      // Final validation: ensure it's not empty and not in exclude words
+      const lowerNormalized = normalizedSubject.toLowerCase();
+      if (normalizedSubject && normalizedSubject.length > 0 && !excludeWords.has(lowerNormalized)) {
+        console.log(`🎯 Pattern "tutor for" matched: "${potentialSubject}" -> "${normalizedSubject}" (lowercase: "${lowerNormalized}")`);
+        console.log(`🎯 Returning intent: tutors_by_subject with subject: "${normalizedSubject}"`);
+        return { type: 'tutors_by_subject', slots: { subject: normalizedSubject } };
+      } else {
+        console.log(`⚠️  Pattern "tutor for" matched but validation failed: normalizedSubject="${normalizedSubject}", excludeWords.has="${excludeWords.has(lowerNormalized)}"`);
+      }
+    }
+  }
+
   // Tutors by subject - robust patterns for "registered for", "teaching", "who teaches", etc.
   // Pattern 1: "tutors (registered for|for|in|teaching|who teach) <subject>"
-  const registeredPattern = /(?:tutors?|tutor'?s?)\s+(?:registered\s+for|for|in|teaching|who\s+teach|who\s+teaches)\s+([a-zA-Z][a-zA-Z\s]{1,30})/i;
-  const registeredMatch = text.match(registeredPattern);
+  // Allow special characters: +, #, ., etc. for subjects like C++, C#
+  const registeredPattern = /(?:tutors?|tutor'?s?)\s+(?:registered\s+for|for|in|teaching|who\s+teach|who\s+teaches)\s+([a-zA-Z0-9+#.\s]{1,30})/i;
+  const registeredMatch = userText.match(registeredPattern);
   if (registeredMatch && registeredMatch[1]) {
     let potentialSubject = registeredMatch[1].trim();
     // Remove leading "for" if accidentally captured
@@ -215,8 +256,8 @@ function detectIntent(userText) {
   }
 
   // Pattern 2: "<subject> tutors" or "tutors for <subject>"
-  // Match "tutors for X" (capture X, not "for X")
-  const tutorsForPattern = /tutors?\s+for\s+([a-zA-Z][a-zA-Z\s]{1,30})(?:\s|$)/i;
+  // Match "tutors for X" (capture X, including special chars like C++, C#)
+  const tutorsForPattern = /tutors?\s+for\s+([a-zA-Z0-9+#.\s]{1,30})(?:\s|$|\.|\?)/i;
   const tutorsForMatch = text.match(tutorsForPattern);
   if (tutorsForMatch && tutorsForMatch[1]) {
     let potentialSubject = tutorsForMatch[1].trim();
@@ -228,7 +269,7 @@ function detectIntent(userText) {
   }
   
   // Match "<subject> tutors"
-  const subjectTutorsPattern = /(?:^|\s)([a-zA-Z][a-zA-Z\s]{1,30})\s+tutors?/i;
+  const subjectTutorsPattern = /(?:^|\s)([a-zA-Z0-9+#.\s]{1,30})\s+tutors?/i;
   const subjectTutorsMatch = text.match(subjectTutorsPattern);
   if (subjectTutorsMatch && subjectTutorsMatch[1]) {
     let potentialSubject = subjectTutorsMatch[1].trim();
@@ -240,7 +281,7 @@ function detectIntent(userText) {
   }
 
   // Pattern 3: "who teaches <subject>"
-  const whoTeachesPattern = /who\s+(?:teaches?|teach)\s+([a-zA-Z][a-zA-Z\s]{1,30})/i;
+  const whoTeachesPattern = /who\s+(?:teaches?|teach)\s+([a-zA-Z0-9+#.\s]{1,30})/i;
   const whoTeachesMatch = text.match(whoTeachesPattern);
   if (whoTeachesMatch && whoTeachesMatch[1]) {
     let potentialSubject = whoTeachesMatch[1].trim();
@@ -251,8 +292,10 @@ function detectIntent(userText) {
       return { type: 'tutors_by_subject', slots: { subject: normalizedSubject } };
     }
   }
+  
 
   // Pattern 4: General subject detection with tutor keywords
+  // Only use this as fallback if no other pattern matched
   // Extract subject from the full text (not just patterns)
   const subject = extractSubject(userText);
   if (
@@ -263,8 +306,14 @@ function detectIntent(userText) {
     if (subject) {
       // Clean subject - remove "for" prefix if present
       const cleanSubject = subject.replace(/^for\s+/i, '').trim();
+      // Only return if subject is valid and not in exclude words
       if (cleanSubject && cleanSubject.length > 0 && !excludeWords.has(cleanSubject.toLowerCase())) {
-        return { type: 'tutors_by_subject', slots: { subject: cleanSubject } };
+        // Additional check: don't return if it looks like a phrase (has spaces and common words)
+        const words = cleanSubject.toLowerCase().split(/\s+/);
+        const hasCommonWords = words.some(w => ['can', 'you', 'tell', 'me', 'the', 'for', 'is', 'what', 'who'].includes(w));
+        if (!hasCommonWords || words.length <= 2) {
+          return { type: 'tutors_by_subject', slots: { subject: cleanSubject } };
+        }
       }
     }
     // Even without subject, user might want tutor list

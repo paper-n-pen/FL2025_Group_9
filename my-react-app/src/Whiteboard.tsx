@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionSocket } from './socket';
+import './components/whiteboard.css';
 
 // Define a more structured data type for drawing events
 interface Point {
@@ -195,7 +196,13 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
     
             const { sessionId: sid, payload } = raw as { sessionId: string; payload: DrawData };
     
-            if (sid !== sessionId) return;
+            // Compare as strings
+            if (String(sid) !== String(sessionId)) {
+                console.log("⚠️ Received draw event for different session:", sid, "vs", sessionId);
+                return;
+            }
+            
+            console.log("📥 Received whiteboard draw event:", { sessionId: sid, type: payload.type });
     
             const context = contextRef.current;
             const canvas = canvasRef.current;
@@ -232,11 +239,14 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
         };
     }, []);
 
-    const emitDrawing = (payload: DrawData) => {
+    const emitDrawing = useCallback((payload: DrawData) => {
         if (!sessionId || !socket) return;
     
-        socket.emit("whiteboard-draw", { sessionId, payload });
-    };
+        // Ensure sessionId is a string for consistency
+        const sessionIdStr = String(sessionId);
+        console.log("📤 Emitting whiteboard draw:", { sessionId: sessionIdStr, type: payload.type });
+        socket.emit("whiteboard-draw", { sessionId: sessionIdStr, payload });
+    }, [sessionId, socket]);
     
 
     const startDrawing = (event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -374,16 +384,16 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
     };
 
     // Toolbar functions
-    const clearCanvas = () => {
+    const clearCanvas = useCallback(() => {
         const context = contextRef.current;
         const canvas = canvasRef.current;
         if (!context || !canvas) return;
         context.clearRect(0, 0, canvas.width, canvas.height);
         resetHistory();
         emitDrawing({ type: 'clear' });
-    };
+    }, [emitDrawing]);
 
-    const downloadCanvas = () => {
+    const downloadCanvas = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         
@@ -391,102 +401,110 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
         link.download = `whiteboard-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
         link.href = canvas.toDataURL();
         link.click();
-    };
+    }, []);
+
+    // Keyboard shortcuts
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            // Only handle shortcuts if not typing in an input
+            if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+                return;
+            }
+
+            const key = event.key.toLowerCase();
+            if (key === 'p') {
+                setCurrentTool('pen');
+            } else if (key === 'e') {
+                setCurrentTool('eraser');
+            } else if (key === 'c') {
+                clearCanvas();
+            } else if (key === 'd') {
+                downloadCanvas();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [clearCanvas, downloadCanvas]);
 
     return (
-    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 }}>
+        <div ref={containerRef} className="wb-wrap">
             {/* Toolbar */}
-            <div ref={toolbarRef} style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '10px',
-                backgroundColor: '#f5f5f5',
-                borderBottom: '1px solid #ddd',
-                flexWrap: 'wrap'
-            }}>
+            <div ref={toolbarRef} className="wb-toolbar" role="toolbar" aria-label="Whiteboard controls">
                 {/* Tool Selection */}
-                <div style={{ display: 'flex', gap: '5px' }}>
+                <div className="wb-seg" role="group" aria-label="Tool">
                     <button
+                        type="button"
+                        aria-pressed={currentTool === 'pen'}
+                        aria-label="Pen (P)"
                         onClick={() => setCurrentTool('pen')}
-                        style={{
-                            padding: '8px 16px',
-                            backgroundColor: currentTool === 'pen' ? '#007bff' : '#fff',
-                            color: currentTool === 'pen' ? '#fff' : '#000',
-                            border: '1px solid #ccc',
-                            borderRadius: '4px',
-                            cursor: 'pointer'
-                        }}
+                        title="Pen (P)"
                     >
                         ✏️ Pen
                     </button>
                     <button
+                        type="button"
+                        aria-pressed={currentTool === 'eraser'}
+                        aria-label="Eraser (E)"
                         onClick={() => setCurrentTool('eraser')}
-                        style={{
-                            padding: '8px 16px',
-                            backgroundColor: currentTool === 'eraser' ? '#007bff' : '#fff',
-                            color: currentTool === 'eraser' ? '#fff' : '#000',
-                            border: '1px solid #ccc',
-                            borderRadius: '4px',
-                            cursor: 'pointer'
-                        }}
+                        title="Eraser (E)"
                     >
                         🧹 Eraser
                     </button>
                 </div>
 
                 {/* Brush Size */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <label>Size:</label>
+                <div className="wb-field" aria-label="Stroke size">
+                    <label htmlFor="brush-size">Size:</label>
                     <input
+                        id="brush-size"
+                        className="wb-slider"
                         type="range"
                         min="1"
                         max="20"
                         value={brushSize}
                         onChange={(event: React.ChangeEvent<HTMLInputElement>) => setBrushSize(Number(event.target.value))}
-                        style={{ width: '100px' }}
+                        aria-valuemin={1}
+                        aria-valuemax={20}
+                        aria-valuenow={brushSize}
+                        aria-label="Brush size"
                     />
                     <span>{brushSize}px</span>
                 </div>
 
                 {/* Color Picker */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <label>Color:</label>
-                    <input
-                        type="color"
-                        value={brushColor}
-                        onChange={(event: React.ChangeEvent<HTMLInputElement>) => setBrushColor(event.target.value)}
-                        style={{ width: '40px', height: '30px', border: 'none', borderRadius: '4px' }}
-                    />
+                <div className="wb-field" aria-label="Stroke color">
+                    <label htmlFor="brush-color">Color:</label>
+                    <span className="wb-color" title="Pick color">
+                        <input
+                            id="brush-color"
+                            type="color"
+                            value={brushColor}
+                            onChange={(event: React.ChangeEvent<HTMLInputElement>) => setBrushColor(event.target.value)}
+                            aria-label="Pick color"
+                        />
+                    </span>
                 </div>
 
                 {/* Action Buttons */}
-                <div style={{ display: 'flex', gap: '5px', marginLeft: 'auto' }}>
+                <div className="wb-toolbar-actions">
                     <button
+                        type="button"
+                        className="btn btn-outline-danger"
                         onClick={clearCanvas}
-                        style={{
-                            padding: '8px 16px',
-                            backgroundColor: '#dc3545',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer'
-                        }}
+                        aria-label="Clear (C)"
+                        title="Clear (C)"
                     >
-                        🗑️ Clear
+                        Clear
                     </button>
                     <button
+                        type="button"
+                        className="btn btn-primary"
                         onClick={downloadCanvas}
-                        style={{
-                            padding: '8px 16px',
-                            backgroundColor: '#28a745',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer'
-                        }}
+                        aria-label="Download (D)"
+                        title="Download (D)"
                     >
-                        💾 Download
+                        Download
                     </button>
                 </div>
             </div>
@@ -498,12 +516,8 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
                 onMouseMove={draw}
                 onMouseLeave={finishDrawing}
                 ref={canvasRef}
-                style={{
-                    border: '1px solid black',
-                    backgroundColor: 'white',
-                    flex: '1 1 auto',
-                    cursor: currentTool === 'eraser' ? 'crosshair' : 'crosshair'
-                }}
+                className="wb-canvas"
+                aria-label="Whiteboard canvas"
             />
         </div>
     );

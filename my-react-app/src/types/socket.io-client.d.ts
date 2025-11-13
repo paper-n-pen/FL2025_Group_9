@@ -2,8 +2,9 @@ declare module "socket.io-client" {
   type Listener = (...args: any[]) => void;
 
   export interface Socket {
+    id?: string;
     connected: boolean;
-    emit(event: string, ...args: any[]): this;
+    emit(event: string, ...args: unknown[]): this;
     on(event: string, listener: Listener): this;
     once(event: string, listener: Listener): this;
     off(event: string, listener?: Listener): this;

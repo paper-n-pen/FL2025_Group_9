@@ -42,15 +42,17 @@ services:
       retries: 5
       start_period: 10s
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    restart: unless-stopped
+  # Ollama service - optional (can be started separately if needed)
+  # Uncomment to enable Ollama in Docker
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   restart: unless-stopped
 
 volumes:
   postgres_data:
-  ollama_data:
+  # ollama_data:  # Uncomment if using Ollama service
