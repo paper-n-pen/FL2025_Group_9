@@ -1,7 +1,6 @@
 // my-react-app/src/pages/student/StudentDashboard.tsx
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import {
   Box,
   Card,
@@ -17,7 +16,9 @@ import {
   Snackbar,
   Alert,
   IconButton,
+  SvgIcon,
 } from "@mui/material";
+import type { AlertColor, SnackbarCloseReason } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import CloseIcon from "@mui/icons-material/Close";
 import {
@@ -25,10 +26,9 @@ import {
   clearAuthState,
   storeAuthState,
 } from "../../utils/authStorage";
-import { getSocket, SOCKET_ENDPOINT } from "../../socket";
+import { getSocket } from "../../socket";
+import { apiPath } from "../../config";
 import api from "../../lib/api";
-
-axios.defaults.withCredentials = true;
 const socket = getSocket();
 
 interface Subject {
@@ -36,6 +36,13 @@ interface Subject {
   icon: string;
   subtopics: string[];
 }
+
+type Snack = {
+  id: number;
+  message: string;
+  severity: AlertColor;
+  open: boolean;
+};
 
 export default function StudentDashboard() {
   const navigate = useNavigate();
@@ -45,14 +52,28 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(false);
   const [studentUser, setStudentUser] = useState<any>(null);
   const [acceptedTutors, setAcceptedTutors] = useState<any[]>([]);
-  const [snacks, setSnacks] = useState<
-    { id: number; message: string; severity?: "success" | "info" | "error" }[]
-  >([]);
+  const [snacks, setSnacks] = useState<Snack[]>([]);
 
   const pushSnack = (
     message: string,
-    severity: "success" | "info" | "error" = "info"
-  ) => setSnacks((prev) => [...prev, { id: Date.now(), message, severity }]);
+    severity: AlertColor = "info"
+  ) =>
+    setSnacks((prevSnacks: Snack[]) => [
+      ...prevSnacks,
+      { id: Date.now() + Math.random(), message, severity, open: true },
+    ]);
+
+  const closeSnack = (id: number) =>
+    setSnacks((prevSnacks: Snack[]) =>
+      prevSnacks.map((item) =>
+        item.id === id ? { ...item, open: false } : item
+      )
+    );
+
+  const removeSnack = (id: number) =>
+    setSnacks((prevSnacks: Snack[]) =>
+      prevSnacks.filter((item) => item.id !== id)
+    );
 
   const subjects: Subject[] = [
     {
@@ -109,9 +130,10 @@ export default function StudentDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const data = await api.get('/api/auth/me');
-        if (!cancelled && data?.user) {
-          const u = { ...data.user, userType: data.user.role || "student" };
+        const data = await api.get(apiPath("/me"));
+        const fetchedUser = data?.user;
+        if (!cancelled && fetchedUser) {
+          const u = { ...fetchedUser, userType: fetchedUser.role || "student" };
           setStudentUser(u);
           markActiveUserType("student");
           // ✅ Persist (token can be null; backend sets cookie, that's fine)
@@ -131,10 +153,9 @@ export default function StudentDashboard() {
   const fetchTutorResponses = useCallback(async () => {
     try {
       if (!studentUser?.id) return;
-      const response = await axios.get(
-        `${SOCKET_ENDPOINT}/api/queries/student/${studentUser.id}/responses`
-      );
-      const active = response.data.filter((item: any) => {
+      const data = await api.get(apiPath(`/queries/student/${studentUser.id}/responses`));
+      const list = Array.isArray(data) ? data : [];
+      const active = list.filter((item: any) => {
         const status = item?.status?.toLowerCase?.() || "";
         const sessionStatus = item?.sessionStatus?.toLowerCase?.() || "";
         return !(status === "completed" || sessionStatus === "ended");
@@ -173,7 +194,7 @@ export default function StudentDashboard() {
   const handleLogout = async () => {
     try {
       if (studentUser?.id) socket.emit("leave-student-room", studentUser.id);
-      await api.post('/api/auth/logout', {});
+      await api.post(apiPath("/logout"), {});
     } catch (err) {
       console.error("Logout error:", err);
     }
@@ -182,7 +203,7 @@ export default function StudentDashboard() {
     navigate("/student/login", { replace: true });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!selectedSubject || !selectedSubtopic || !query.trim()) {
       pushSnack("Please fill in all fields", "error");
@@ -195,13 +216,13 @@ export default function StudentDashboard() {
     }
     setLoading(true);
     try {
-      const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/post`, {
+      const response = await api.post(apiPath("/queries/post"), {
         subject: selectedSubject,
         subtopic: selectedSubtopic,
         query: query.trim(),
         studentId: studentUser.id,
       });
-      if (response.data.message === "Query posted successfully") {
+      if (response?.message === "Query posted successfully") {
         pushSnack("Query posted! Tutors will be notified.", "success");
         setQuery("");
         setSelectedSubject("");
@@ -371,7 +392,9 @@ export default function StudentDashboard() {
                   </Typography>
                   <TextField
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+                    onChange={(event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+                      setQuery(event.target.value)
+                    }
                     multiline
                     rows={4}
                     fullWidth
@@ -438,12 +461,12 @@ export default function StudentDashboard() {
                       height: 56,
                     }}
                   >
-                    <svg width="28" height="28" viewBox="0 0 24 24">
+                    <SvgIcon fontSize="large" viewBox="0 0 24 24">
                       <path
-                        fill="currentColor"
                         d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5m0 2c-4 0-8 2-8 6h16c0-4-4-6-8-6Z"
+                        fill="currentColor"
                       />
-                    </svg>
+                    </SvgIcon>
                   </Avatar>
                   <Typography variant="h6">No tutor responses yet</Typography>
                   <Typography color="text.secondary">
@@ -507,33 +530,36 @@ export default function StudentDashboard() {
       </Grid>
 
       {/* Snackbars */}
-      {snacks.map((s) => (
+      {snacks.map((snack: Snack) => (
         <Snackbar
-          key={s.id}
-          open
-          autoHideDuration={4000}
-          onClose={() =>
-            setSnacks((prev) => prev.filter((x) => x.id !== s.id))
-          }
+          key={snack.id}
+          open={snack.open}
+          autoHideDuration={2000}
+          onClose={(_event: React.SyntheticEvent | Event, reason?: SnackbarCloseReason) => {
+            if (reason === "clickaway") {
+              return;
+            }
+            closeSnack(snack.id);
+          }}
+          TransitionProps={{
+            onExited: () => removeSnack(snack.id),
+          }}
           anchorOrigin={{ vertical: "top", horizontal: "right" }}
         >
           <Alert
-            severity={s.severity}
-            variant="filled"
+            severity={snack.severity}
             action={
               <IconButton
                 size="small"
                 color="inherit"
-                onClick={() =>
-                  setSnacks((prev) => prev.filter((x) => x.id !== s.id))
-                }
+                onClick={() => closeSnack(snack.id)}
               >
                 <CloseIcon fontSize="small" />
               </IconButton>
             }
             sx={{ boxShadow: 3, borderRadius: 2 }}
           >
-            {s.message}
+            {snack.message}
           </Alert>
         </Snackbar>
       ))}

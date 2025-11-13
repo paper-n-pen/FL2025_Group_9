@@ -1,6 +1,7 @@
 // src/components/Chatbot.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
+import { apiPath } from '../config';
+import api from '../lib/api';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -47,28 +48,20 @@ export default function Chatbot() {
       // Send last ~12 messages (to keep context manageable)
       const messagesToSend = updatedMessages.slice(-12);
       
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      const response = await axios.post(`${apiUrl}/api/chat`, {
+      const response = await api.post(apiPath('/chat'), {
         messages: messagesToSend,
-      }, { withCredentials: true });
+      });
 
       const assistantMessage: Message = {
         role: 'assistant',
-        content: response.data.reply,
+        content: response?.reply ?? 'Sorry, I could not generate a response.',
       };
       setMessages([...updatedMessages, assistantMessage]);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Chat error:', error);
       let errorMsg = 'Sorry, I encountered an error. Please try again later.';
       
-      if (error.response) {
-        // Server responded with error status
-        errorMsg = error.response.data?.error || `Error: ${error.response.status}`;
-      } else if (error.request) {
-        // Request was made but no response received
-        errorMsg = 'Unable to connect to the server. Please ensure the backend is running.';
-      } else {
-        // Something else happened
+      if (error instanceof Error) {
         errorMsg = error.message || errorMsg;
       }
       

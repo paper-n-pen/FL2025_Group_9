@@ -59,7 +59,6 @@
 
 // src/pages/CreatePost.tsx
 import React, { useState } from "react";
-import axios from "axios";
 import {
   Box,
   Container,
@@ -72,8 +71,8 @@ import {
   Divider,
 } from "@mui/material";
 import EditNoteIcon from "@mui/icons-material/EditNote";
-
-const API_BASE_URL = import.meta.env.VITE_BACKEND_URL ?? "http://localhost:3000";
+import { apiPath } from "./config";
+import api from "./lib/api";
 
 export default function CreatePost() {
   const [title, setTitle] = useState("");
@@ -100,17 +99,18 @@ export default function CreatePost() {
     }
 
     try {
-      await axios.post(
-        `${API_BASE_URL}/api/posts`,
+      await api.post(
+        apiPath("/posts"),
         { title, content },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setMessage({ text: "✅ Post created successfully!", type: "success" });
       setTitle("");
       setContent("");
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
-      setMessage({ text: "❌ Failed to create post.", type: "error" });
+      const message = err instanceof Error ? err.message : "❌ Failed to create post.";
+      setMessage({ text: message, type: "error" });
     }
   };
 

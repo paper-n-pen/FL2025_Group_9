@@ -8,11 +8,15 @@ import {
   Paper,
   Link as MuiLink,
   Chip,
-  Autocomplete,
   Alert,
   CircularProgress,
 } from "@mui/material";
+import Autocomplete, {
+  type AutocompleteRenderInputParams,
+  type AutocompleteRenderGetTagProps,
+} from "@mui/material/Autocomplete";
 import { Link, useNavigate } from "react-router-dom";
+import { apiPath } from "../../config";
 import api from "../../lib/api";
 import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
 
@@ -24,28 +28,41 @@ const specialtiesList = [
   "Organic Chemistry", "Inorganic Chemistry", "Physical Chemistry", "Biochemistry"
 ];
 
+type TutorSetupForm = {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  education: string;
+  specialties: string[];
+  rate_per_10_min: string;
+};
+
 export default function TutorSetup() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<TutorSetupForm>({
     name: "",
     email: "",
     password: "",
     confirmPassword: "",
     education: "",
-    specialties: [] as string[],
-    price_per_hour: "",
+    specialties: [],
+    rate_per_10_min: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setForm((prevForm: TutorSetupForm) => ({
+      ...prevForm,
+      [event.target.name]: event.target.value,
+    }));
     setError(""); // Clear error on input change
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setError("");
     setSuccess("");
     setLoading(true);
@@ -64,36 +81,49 @@ export default function TutorSetup() {
     }
 
     try {
-      console.log("Submitting tutor registration...");
-      const user = await api.post('/api/auth/register', {
-        role: "tutor",
-        name: form.name,
+      const rawRate = form.rate_per_10_min ? parseFloat(form.rate_per_10_min) : 0;
+      const ratePerTen = Number.isFinite(rawRate) ? Number(rawRate.toFixed(2)) : 0;
+
+      await api.post(apiPath("/register"), {
+        username: form.name,
         email: form.email,
         password: form.password,
+        user_type: "tutor",
         education: form.education || undefined,
-        subjects: form.specialties.length > 0 ? form.specialties : undefined,
-        price_per_hour: form.price_per_hour ? Number(form.price_per_hour) : undefined,
+        specialties: form.specialties,
+        rate_per_10_min: ratePerTen,
       });
 
-      console.log("Tutor registration successful:", user);
-
-      // Store auth state
-      storeAuthState("tutor", null, {
-        id: user.id,
-        username: user.name,
-        email: user.email,
-        userType: user.role,
+      await api.post(apiPath("/login"), {
+        email: form.email,
+        password: form.password,
       });
-      markActiveUserType("tutor");
 
-      setSuccess("✅ Account created successfully!");
-      setTimeout(() => {
-        navigate("/tutor/dashboard", { replace: true });
-      }, 1000);
-    } catch (err: any) {
+      const me = await api.get(apiPath("/me"));
+      const user = me?.user;
+      if (!user) {
+        throw new Error("Unable to verify new tutor account");
+      }
+
+      const resolvedRole = (user.role || user.userType || "tutor").toLowerCase();
+      const typeKey = resolvedRole === "student" ? "student" : "tutor";
+      const normalizedUser = {
+        ...user,
+        userType: typeKey,
+        name: user.name || user.username,
+        username: user.username || user.name || user.email,
+      };
+
+      storeAuthState(typeKey, null, normalizedUser);
+      markActiveUserType(typeKey);
+
+      setSuccess("✅ Account created! Taking you to your dashboard...");
+      navigate(`/${typeKey}/dashboard`, { replace: true });
+    } catch (err: unknown) {
       console.error("Registration error:", err);
       // Show exact server error message
-      const errorMessage = err.message || "Registration failed. Please try again.";
+      const errorMessage =
+        err instanceof Error ? err.message : "Registration failed. Please try again.";
       setError(`❌ ${errorMessage}`);
     } finally {
       setLoading(false);
@@ -192,11 +222,20 @@ export default function TutorSetup() {
             freeSolo // allows tutors to type custom specialties
             options={specialtiesList}
             value={form.specialties}
-            onChange={(event, newValue) => {
-              setForm({ ...form, specialties: newValue });
+            onChange={(
+              _event: React.SyntheticEvent,
+              newValue: string[]
+            ) => {
+              setForm((prevForm: TutorSetupForm) => ({
+                ...prevForm,
+                specialties: newValue,
+              }));
             }}
             disabled={loading}
-            renderTags={(value: readonly string[], getTagProps) =>
+            renderTags={(
+              value: readonly string[],
+              getTagProps: AutocompleteRenderGetTagProps
+            ) =>
               value.map((option: string, index: number) => (
                 <Chip
                   variant="outlined"
@@ -207,7 +246,7 @@ export default function TutorSetup() {
                 />
               ))
             }
-            renderInput={(params) => (
+            renderInput={(params: AutocompleteRenderInputParams) => (
               <TextField
                 {...params}
                 label="Specialties"
@@ -220,10 +259,10 @@ export default function TutorSetup() {
 
           <TextField
             fullWidth
-            label="Price per Hour ($)"
-            name="price_per_hour"
+            label="Rate per 10 minutes ($)"
+            name="rate_per_10_min"
             type="number"
-            value={form.price_per_hour}
+            value={form.rate_per_10_min}
             onChange={handleChange}
             margin="normal"
             disabled={loading}

@@ -16,26 +16,39 @@ import {
   Alert,
   IconButton,
 } from "@mui/material";
+import type { AlertColor, SnackbarCloseReason } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import {
   getAuthStateForType,
   storeAuthState,
   markActiveUserType,
 } from "../../utils/authStorage";
+import { apiPath } from "../../config";
+import api from "../../lib/api";
 
 export default function TutorProfile() {
-  const [formData, setFormData] = useState({
+  type TutorProfileForm = {
+    bio: string;
+    education: string;
+    specialties: string[];
+    ratePer10Min: string;
+  };
+
+  const [formData, setFormData] = useState<TutorProfileForm>({
     bio: "",
     education: "",
     specialties: [] as string[],
     ratePer10Min: "",
   });
   const [loading, setLoading] = useState(false);
-  const [snacks, setSnacks] = useState<
-    { id: number; message: string; severity?: "success" | "info" | "error" }[]
-  >([]);
+  type Snack = {
+    id: number;
+    message: string;
+    severity: AlertColor;
+    open: boolean;
+  };
+  const [snacks, setSnacks] = useState<Snack[]>([]);
   const navigate = useNavigate();
 
   const availableSpecialties = [
@@ -80,35 +93,53 @@ export default function TutorProfile() {
     }
   }, [navigate]);
 
-  const pushSnack = (
-    message: string,
-    severity: "success" | "info" | "error" = "info"
-  ) => {
-    setSnacks((prev) => [...prev, { id: Date.now(), message, severity }]);
+  const pushSnack = (message: string, severity: AlertColor = "info") => {
+    setSnacks((prevSnacks: Snack[]) => [
+      ...prevSnacks,
+      { id: Date.now() + Math.random(), message, severity, open: true },
+    ]);
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
+  const closeSnack = (id: number) => {
+    setSnacks((prevSnacks: Snack[]) =>
+      prevSnacks.map((snack) =>
+        snack.id === id ? { ...snack, open: false } : snack
+      )
+    );
+  };
+
+  const removeSnack = (id: number) => {
+    setSnacks((prevSnacks: Snack[]) => prevSnacks.filter((snack) => snack.id !== id));
+  };
+
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = event.target;
     if (name === "ratePer10Min") {
       if (value === "" || /^\d*(?:\.\d{0,2})?$/.test(value)) {
-        setFormData((prev) => ({ ...prev, ratePer10Min: value }));
+        setFormData((prev: TutorProfileForm) => ({
+          ...prev,
+          ratePer10Min: value,
+        }));
       }
     } else {
-      setFormData((prev) => ({ ...prev, [name]: value }));
+      setFormData((prev: TutorProfileForm) => ({
+        ...prev,
+        [name]: value,
+      }));
     }
   };
 
   const handleSpecialtyToggle = (specialty: string) => {
-    setFormData((prev) => ({
+    setFormData((prev: TutorProfileForm) => ({
       ...prev,
       specialties: prev.specialties.includes(specialty)
-        ? prev.specialties.filter((s) => s !== specialty)
+        ? prev.specialties.filter((current: string) => current !== specialty)
         : [...prev.specialties, specialty],
     }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setLoading(true);
     try {
       const stored = getAuthStateForType("tutor");
@@ -121,12 +152,11 @@ export default function TutorProfile() {
         ? Number(Number(formData.ratePer10Min).toFixed(2))
         : 0;
 
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-      await axios.put(`${apiUrl}/api/queries/profile`, {
+      await api.put(apiPath("/queries/profile"), {
         ...formData,
         ratePer10Min: normalizedRate,
         userId: stored.user.id,
-      }, { withCredentials: true });
+      });
 
       const updatedUser = {
         ...stored.user,
@@ -138,11 +168,10 @@ export default function TutorProfile() {
 
       pushSnack("Profile updated successfully!", "success");
       setTimeout(() => navigate("/tutor/dashboard"), 1500);
-    } catch (err: any) {
-      pushSnack(
-        err.response?.data?.message || "Failed to update profile",
-        "error"
-      );
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to update profile";
+      pushSnack(message, "error");
     } finally {
       setLoading(false);
     }
@@ -335,34 +364,40 @@ export default function TutorProfile() {
       </Container>
 
       {/* Snackbars */}
-      {snacks.map((s) => (
+      {snacks.map((snack: Snack) => (
         <Snackbar
-          key={s.id}
-          open
-          autoHideDuration={4000}
-          onClose={() =>
-            setSnacks((prev) => prev.filter((x) => x.id !== s.id))
-          }
+          key={snack.id}
+          open={snack.open}
+          autoHideDuration={2000}
           anchorOrigin={{ vertical: "top", horizontal: "right" }}
+          onClose={(
+            _event: React.SyntheticEvent | Event,
+            reason?: SnackbarCloseReason
+          ) => {
+            if (reason === "clickaway") {
+              return;
+            }
+            closeSnack(snack.id);
+          }}
+          TransitionProps={{
+            onExited: () => removeSnack(snack.id),
+          }}
         >
           <Alert
-            severity={s.severity}
-            variant="filled"
+            severity={snack.severity}
             action={
               <IconButton
                 size="small"
                 aria-label="close"
                 color="inherit"
-                onClick={() =>
-                  setSnacks((prev) => prev.filter((x) => x.id !== s.id))
-                }
+                onClick={() => closeSnack(snack.id)}
               >
                 <CloseIcon fontSize="small" />
               </IconButton>
             }
             sx={{ boxShadow: 3, borderRadius: 2 }}
           >
-            {s.message}
+            {snack.message}
           </Alert>
         </Snackbar>
       ))}

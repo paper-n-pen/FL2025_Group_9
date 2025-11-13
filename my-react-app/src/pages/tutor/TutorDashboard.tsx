@@ -1,7 +1,6 @@
 // src/pages/tutor/TutorDashboard.tsx
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import {
   Box,
   Container,
@@ -14,10 +13,12 @@ import {
   Stack,
   Divider,
   Chip,
+  SvgIcon,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
-import { getAuthStateForType, markActiveUserType, clearAuthState } from "../../utils/authStorage";
-import { getSocket, SOCKET_ENDPOINT } from "../../socket";
+import { getAuthStateForType, markActiveUserType, clearAuthState, storeAuthState } from "../../utils/authStorage";
+import { getSocket } from "../../socket";
+import { apiPath } from "../../config";
 import api from "../../lib/api";
 
 const socket = getSocket();
@@ -53,10 +54,10 @@ export default function TutorDashboard() {
         setAcceptedQueries([]);
         return;
       }
-      const response = await axios.get(
-        `${SOCKET_ENDPOINT}/api/queries/tutor/${tutorUser.id}/accepted-queries`
+      const response = await api.get(
+        apiPath(`/queries/tutor/${tutorUser.id}/accepted-queries`)
       );
-      setAcceptedQueries(response.data || []);
+      setAcceptedQueries(Array.isArray(response) ? response : []);
     } catch (error) {
       console.error("Error fetching accepted queries:", error);
     }
@@ -64,21 +65,49 @@ export default function TutorDashboard() {
 
   // ✅ Auth check
   useEffect(() => {
+    let isMounted = true;
+
     const fetchTutor = async () => {
       try {
-        const data = await api.get('/api/auth/me');
-        const u = data.user;
-        if (u?.role === "tutor" || u?.userType === "tutor") {
-          setTutorUser(u);
-          markActiveUserType("tutor");
-        } else {
-          navigate("/tutor/login", { replace: true });
+        const res = await api.get(apiPath("/me"));
+        const u = res?.user;
+        const resolvedRole = (u?.userType || u?.role || "").toLowerCase();
+
+        if (resolvedRole === "tutor" && u) {
+          const normalized = { ...u, userType: "tutor" };
+          if (isMounted) {
+            setTutorUser(normalized);
+            markActiveUserType("tutor");
+            storeAuthState("tutor", null, normalized);
+          }
+          return;
         }
-      } catch {
-        navigate("/tutor/login", { replace: true });
+
+        throw new Error("Tutor role not confirmed");
+      } catch (error: any) {
+        const cachedTutor = getAuthStateForType("tutor").user;
+        const message = String(error?.message ?? "").toLowerCase();
+        const unauthorized = message.includes("401") || message.includes("unauthorized");
+
+        if (!cachedTutor || unauthorized) {
+          clearAuthState("tutor");
+          if (isMounted) navigate("/tutor/login", { replace: true });
+          return;
+        }
+
+        console.warn("Falling back to cached tutor auth after /me failure", error);
+        if (isMounted) {
+          setTutorUser(cachedTutor);
+          markActiveUserType("tutor");
+        }
       }
     };
+
     fetchTutor();
+
+    return () => {
+      isMounted = false;
+    };
   }, [navigate]);
 
   // ✅ Socket setup
@@ -102,8 +131,8 @@ export default function TutorDashboard() {
     const fetchQueries = async () => {
       try {
         if (!tutorUser?.id) return;
-        const response = await axios.get(`${SOCKET_ENDPOINT}/api/queries/tutor/${tutorUser.id}`);
-        const filtered = (response.data || []).filter(
+        const response = await api.get(apiPath(`/queries/tutor/${tutorUser.id}`));
+        const filtered = (Array.isArray(response) ? response : []).filter(
           (item: StudentQuery) => !declinedQueryIdsRef.current.has(item.id)
         );
         setQueries(filtered);
@@ -131,13 +160,15 @@ export default function TutorDashboard() {
         navigate("/tutor/login");
         return;
       }
-      const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/accept`, {
+      const response = await api.post(apiPath("/queries/accept"), {
         queryId,
         tutorId: tutorUser.id.toString(),
       });
-      if (response.data.message === "Query accepted successfully") {
+      if (response?.message === "Query accepted successfully") {
         declinedQueryIdsRef.current.delete(queryId);
-        setQueries((prev) => prev.filter((q) => q.id !== queryId));
+        setQueries((prevQueries: StudentQuery[]) =>
+          prevQueries.filter((item) => item.id !== queryId)
+        );
         await fetchAcceptedQueries();
       }
     } catch (error: any) {
@@ -149,12 +180,14 @@ export default function TutorDashboard() {
   const handleDeclineQuery = async (queryId: string) => {
     try {
       if (!tutorUser?.id) return;
-      await axios.post(`${SOCKET_ENDPOINT}/api/queries/decline`, {
+      await api.post(apiPath("/queries/decline"), {
         queryId,
         tutorId: tutorUser.id,
       });
       declinedQueryIdsRef.current.add(queryId);
-      setQueries((prev) => prev.filter((q) => q.id !== queryId));
+      setQueries((prevQueries: StudentQuery[]) =>
+        prevQueries.filter((item) => item.id !== queryId)
+      );
     } catch (error: any) {
       console.error("Error declining query:", error);
       alert("Failed to decline query. Please try again.");
@@ -163,12 +196,12 @@ export default function TutorDashboard() {
 
   const handleStartSession = async (query: StudentQuery) => {
     try {
-      const response = await axios.post(`${SOCKET_ENDPOINT}/api/queries/session`, {
+      const response = await api.post(apiPath("/queries/session"), {
         queryId: query.id,
         tutorId: tutorUser.id,
         studentId: query.studentId,
       });
-      const sessionId = response.data.sessionId;
+      const sessionId = response?.sessionId;
       if (sessionId) navigate(`/session/${sessionId}`);
     } catch (error: any) {
       console.error("Error starting session:", error);
@@ -176,12 +209,18 @@ export default function TutorDashboard() {
     }
   };
 
-  const handleLogout = () => {
-    if (tutorUser?.id) socket.emit("leave-tutor-room", tutorUser.id);
-    clearAuthState("tutor");
-    setTutorUser(null);
-    navigate("/");
-  };
+  const handleLogout = useCallback(async () => {
+    try {
+      if (tutorUser?.id) socket.emit("leave-tutor-room", tutorUser.id);
+      await api.post(apiPath("/logout"), {});
+    } catch (error) {
+      console.error("Tutor logout error:", error);
+    } finally {
+      clearAuthState("tutor");
+      setTutorUser(null);
+      navigate("/tutor/login", { replace: true });
+    }
+  }, [navigate, tutorUser?.id, socket]);
 
   // ✅ UI
   return (
@@ -272,12 +311,12 @@ export default function TutorDashboard() {
                     <Avatar
                       sx={{ bgcolor: "grey.100", color: "grey.500", width: 56, height: 56 }}
                     >
-                      <svg width="28" height="28" viewBox="0 0 24 24">
+                      <SvgIcon fontSize="large" viewBox="0 0 24 24">
                         <path
-                          fill="currentColor"
                           d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5m0 2c-4 0-8 2-8 6h16c0-4-4-6-8-6Z"
+                          fill="currentColor"
                         />
-                      </svg>
+                      </SvgIcon>
                     </Avatar>
                     <Typography variant="h6">No new queries</Typography>
                     <Typography color="text.secondary">
@@ -286,21 +325,21 @@ export default function TutorDashboard() {
                   </Box>
                 ) : (
                   <Stack spacing={2}>
-                    {queries.map((q) => (
-                      <Card key={q.id} variant="outlined" sx={{ borderRadius: 2 }}>
+                    {queries.map((query: StudentQuery) => (
+                      <Card key={query.id} variant="outlined" sx={{ borderRadius: 2 }}>
                         <CardContent>
                           <Stack spacing={0.5}>
-                            <Typography variant="h6">{q.studentName}</Typography>
+                            <Typography variant="h6">{query.studentName}</Typography>
                             <Typography variant="body2" color="text.secondary">
-                              {q.subject} • {q.subtopic}
+                              {query.subject} • {query.subtopic}
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                              {q.query}
+                              {query.query}
                             </Typography>
                             <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                               <Button
                                 variant="contained"
-                                onClick={() => handleAcceptQuery(q.id)}
+                                onClick={() => handleAcceptQuery(query.id)}
                                 sx={{
                                   background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
                                   borderRadius: "12px",
@@ -321,7 +360,7 @@ export default function TutorDashboard() {
                               </Button>
                               <Button
                                 variant="outlined"
-                                onClick={() => handleDeclineQuery(q.id)}
+                                onClick={() => handleDeclineQuery(query.id)}
                                 sx={{
                                   border: "1px solid rgba(239, 68, 68, 0.5)",
                                   color: "#ef4444",
@@ -375,12 +414,12 @@ export default function TutorDashboard() {
                     <Avatar
                       sx={{ bgcolor: "grey.100", color: "grey.500", width: 56, height: 56 }}
                     >
-                      <svg width="28" height="28" viewBox="0 0 24 24">
+                      <SvgIcon fontSize="large" viewBox="0 0 24 24">
                         <path
-                          fill="currentColor"
                           d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5m0 2c-4 0-8 2-8 6h16c0-4-4-6-8-6Z"
+                          fill="currentColor"
                         />
-                      </svg>
+                      </SvgIcon>
                     </Avatar>
                     <Typography variant="h6">No accepted queries</Typography>
                     <Typography color="text.secondary">
@@ -389,9 +428,9 @@ export default function TutorDashboard() {
                   </Box>
                 ) : (
                   <Stack spacing={2}>
-                    {acceptedQueries.map((q) => (
+                    {acceptedQueries.map((query: StudentQuery) => (
                       <Card
-                        key={q.id}
+                        key={query.id}
                         variant="outlined"
                         sx={{ 
                           borderRadius: 2, 
@@ -401,12 +440,12 @@ export default function TutorDashboard() {
                       >
                         <CardContent>
                           <Stack spacing={0.5}>
-                            <Typography variant="h6">{q.studentName}</Typography>
+                            <Typography variant="h6">{query.studentName}</Typography>
                             <Typography variant="body2" color="text.secondary">
-                              {q.subject} • {q.subtopic}
+                              {query.subject} • {query.subtopic}
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
-                              {q.query}
+                              {query.query}
                             </Typography>
                             <Button
                               variant="contained"
@@ -426,7 +465,7 @@ export default function TutorDashboard() {
                                   background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
                                 },
                               }}
-                              onClick={() => handleStartSession(q)}
+                              onClick={() => handleStartSession(query)}
                             >
                               Start Session
                             </Button>

@@ -57,7 +57,6 @@
 // src/pages/Login.tsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import axios, { isAxiosError } from "axios";
 import {
   Box,
   Container,
@@ -70,6 +69,8 @@ import {
   Divider,
 } from "@mui/material";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
+import { apiPath } from "./config";
+import api from "./lib/api";
 
 interface LoginResponse {
   token: string;
@@ -81,17 +82,20 @@ export default function Login() {
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setError("");
     try {
-      const res = await axios.post<LoginResponse>("/api/login", { email, password });
-      const token = res.data.token;
-      localStorage.setItem("token", token);
+      const res = await api.post(apiPath("/login"), { email, password }) as LoginResponse | undefined;
+      if (!res?.token) {
+        setError("Login failed.");
+        return;
+      }
+      localStorage.setItem("token", res.token);
       navigate("/dashboard");
     } catch (err) {
-      if (isAxiosError(err)) {
-        setError(err.response?.data?.message || "Login failed.");
+      if (err instanceof Error) {
+        setError(err.message || "Login failed.");
       } else {
         setError("An unexpected error occurred.");
       }
@@ -144,7 +148,7 @@ export default function Login() {
               variant="outlined"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => setEmail(event.target.value)}
               required
               fullWidth
             />
@@ -153,7 +157,7 @@ export default function Login() {
               variant="outlined"
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) => setPassword(event.target.value)}
               required
               fullWidth
             />
