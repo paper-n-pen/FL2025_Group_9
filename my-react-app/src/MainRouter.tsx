@@ -12,6 +12,7 @@ const TutorLogin        = lazy(() => import("./pages/tutor/TutorLogin"));
 const StudentRegister   = lazy(() => import("./pages/student/StudentRegister"));
 const TutorSetup        = lazy(() => import("./pages/tutor/TutorSetup"));  // acts as tutor registration/setup
 const StudentDashboard  = lazy(() => import("./pages/student/StudentDashboard"));
+const RateSession       = lazy(() => import("./pages/student/RateSession"));
 const TutorDashboard    = lazy(() => import("./pages/tutor/TutorDashboard"));
 const TutorProfile      = lazy(() => import("./pages/tutor/TutorProfile"));
 const SessionRoom       = lazy(() => import("./pages/SessionRoom"));
@@ -36,6 +37,7 @@ export default function MainRouter() {
             {/* ---------- Protected Routes ---------- */}
             <Route element={<AppLayout />}>
               <Route path="/student/dashboard" element={<StudentDashboard />} />
+              <Route path="/student/rate-session/:sessionId" element={<RateSession />} />
               <Route path="/tutor/dashboard" element={<TutorDashboard />} />
               <Route path="/tutor/profile" element={<TutorProfile />} />
               <Route path="/session/:sessionId" element={<SessionRoom />} />

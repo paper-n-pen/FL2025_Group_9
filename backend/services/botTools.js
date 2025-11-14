@@ -32,16 +32,22 @@ async function getTutorByName(name) {
     // Round to nearest whole number to show exactly what tutor set
     const pricePerHour = ratePer10Min !== null ? Math.round(ratePer10Min * 6) : null;
 
-    // Get review count from sessions (approximate)
-    const reviewResult = await pool.query(
-      `SELECT COUNT(*) as count
+    // Pull rating stats from completed sessions
+    const ratingResult = await pool.query(
+      `SELECT 
+         AVG(rating) AS avg_rating,
+         COUNT(rating) AS ratings_count
        FROM sessions
        WHERE tutor_id = $1
-       AND status = 'completed'`,
+         AND rating IS NOT NULL`,
       [tutorId]
     );
 
-    const reviewsCount = parseInt(reviewResult.rows[0]?.count || '0', 10);
+    const avgRating = ratingResult.rows[0]?.avg_rating;
+    const formattedRating = avgRating !== null && avgRating !== undefined
+      ? Number(avgRating).toFixed(1)
+      : null;
+    const reviewsCount = parseInt(ratingResult.rows[0]?.ratings_count || '0', 10);
 
     // Simple availability note based on active sessions
     const availabilityResult = await pool.query(
@@ -67,6 +73,8 @@ async function getTutorByName(name) {
       availability_note: availabilityNote,
       bio: row.bio,
       education: row.education,
+      ratings_count: reviewsCount,
+      rating: formattedRating,
     };
   } catch (error) {
     console.error('❌ Error in getTutorByName:', error.message);
@@ -102,7 +110,9 @@ async function listTutorsBySubject(subject, limit = 5) {
          u.specialties as subjects,
          u.rate_per_10_min,
          u.bio,
-         COUNT(s.id) FILTER (WHERE s.status = 'completed') as completed_sessions
+         COUNT(s.id) FILTER (WHERE s.status = 'completed') as completed_sessions,
+         AVG(s.rating) FILTER (WHERE s.rating IS NOT NULL) as avg_rating,
+         COUNT(s.rating) FILTER (WHERE s.rating IS NOT NULL) as ratings_count
        FROM users u
        LEFT JOIN sessions s ON s.tutor_id = u.id
        WHERE u.user_type = 'tutor'
@@ -163,8 +173,10 @@ async function listTutorsBySubject(subject, limit = 5) {
         subjects: specialties,
         price_per_hour: pricePerHour,
         rate_per_10_min: ratePer10Min,
-        rating: null, // No ratings table in schema
-        reviews_count: parseInt(row.completed_sessions || '0', 10),
+        rating: row.avg_rating !== null && row.avg_rating !== undefined
+          ? Number(row.avg_rating).toFixed(1)
+          : null,
+        reviews_count: parseInt(row.ratings_count || row.completed_sessions || '0', 10),
       };
     });
   } catch (error) {
@@ -227,11 +239,12 @@ async function getTutorRatings(name) {
 
     const result = await pool.query(
       `SELECT 
-         COUNT(*) as reviews_count,
+         COUNT(rating) as reviews_count,
+         AVG(rating) as avg_rating,
          MAX(created_at) as last_review_at
        FROM sessions
        WHERE tutor_id = $1
-       AND status = 'completed'`,
+         AND rating IS NOT NULL`,
       [tutorId]
     );
 
@@ -241,7 +254,9 @@ async function getTutorRatings(name) {
 
     const row = result.rows[0];
     return {
-      rating: null, // No ratings table, but we have session count
+      rating: row.avg_rating !== null && row.avg_rating !== undefined
+        ? Number(row.avg_rating).toFixed(1)
+        : null,
       reviews_count: parseInt(row.reviews_count || '0', 10),
       last_review_at: row.last_review_at,
     };
@@ -274,7 +289,9 @@ async function listAllTutors(limit = 10) {
          u.username,
          u.specialties,
          u.rate_per_10_min,
-         COUNT(s.id) FILTER (WHERE s.status = 'completed') as completed_sessions
+         COUNT(s.id) FILTER (WHERE s.status = 'completed') as completed_sessions,
+         AVG(s.rating) FILTER (WHERE s.rating IS NOT NULL) as avg_rating,
+         COUNT(s.rating) FILTER (WHERE s.rating IS NOT NULL) as ratings_count
        FROM users u
        LEFT JOIN sessions s ON s.tutor_id = u.id
        WHERE u.user_type = 'tutor'
@@ -297,7 +314,10 @@ async function listAllTutors(limit = 10) {
         subjects: specialties,
         price_per_hour: pricePerHour,
         rate_per_10_min: ratePer10Min,
-        reviews_count: parseInt(row.completed_sessions || '0', 10),
+        rating: row.avg_rating !== null && row.avg_rating !== undefined
+          ? Number(row.avg_rating).toFixed(1)
+          : null,
+        reviews_count: parseInt(row.ratings_count || row.completed_sessions || '0', 10),
       };
     });
   } catch (error) {
