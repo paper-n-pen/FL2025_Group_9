@@ -5,15 +5,15 @@ Name your repository using the following format:
 (Example: FL2025_Group_9)
 
 ## Team Members
-- **&lt;Sangwon Bae&gt;**: &lt;b.sangwon@wustl.edu&gt; ; &lt;paper-n-pen&gt;
-- **&lt;Yikang Wang&gt;**: &lt;w.yikang@wustl.edu&gt; ; &lt;wangyk55&gt;
-- **&lt;Member Name&gt;**: &lt;Email Address&gt; ; &lt;Github ID&gt;
+- **Sangwon Bae**: b.sangwon@wustl.edu; paper-n-pen
+- **Yikang Wang>**: &lt;w.yikang@wustl.edu; wangyk55
+- **<Member Name>**: <Email Address>; <Github ID>
 
 ## TA
-&lt;Yiren Kang&gt;
+Yiren Kang
 
 ## Objectives
-&lt;A real-time tutoring platform that connects students with tutors for instant help in specific subjects. Students can post queries, tutors can accept them, and they can collaborate using an interactive whiteboard and chat system. &gt;
+A real-time tutoring platform that connects students with tutors for instant help in specific subjects. Students can post queries, tutors can accept them, and they can collaborate using an interactive whiteboard and chat system.
 
 ### Features
 
@@ -42,11 +42,11 @@ Name your repository using the following format:
 
 
 ## How to Run
-&lt;We recommend using Docker for an easy setup. Follow these steps:&gt;
+We recommend using Docker for an easy setup. Follow these steps:
 1. **Clone the Repository**  
    ```bash
-   git clone &lt;repository_url&gt;
-   cd &lt;repository_directory&gt;
+   git clone <repository_url>
+   cd <repository_directory>
    ```
 2. **Build and Run with Docker**  
    Make sure you have Docker installed. Then run:
