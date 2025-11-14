@@ -30,6 +30,17 @@ function formatPrice(price) {
   return `$${rounded}`;
 }
 
+function formatRating(rating) {
+  if (rating === null || rating === undefined) {
+    return 'N/A';
+  }
+  const numeric = Number(rating);
+  if (Number.isNaN(numeric)) {
+    return 'N/A';
+  }
+  return `${numeric.toFixed(1)}/5`;
+}
+
 /**
  * Extract query from recent user messages
  * @param {Array} messages - Array of message objects
@@ -65,7 +76,7 @@ async function buildDBContext(intent) {
               `Tutor: ${tutor.name} | Subjects: ${tutor.subjects.join(', ') || 'N/A'} | ` +
               `Price: ${formatPrice(tutor.price_per_hour)}/hr ` +
               `(${formatPrice(tutor.rate_per_10_min)}/10min) | ` +
-              `Rating: ${tutor.rating || 'N/A'} | Reviews: ${tutor.reviews_count} | ` +
+              `Rating: ${formatRating(tutor.rating)} | Reviews: ${tutor.reviews_count || 0} | ` +
               `Status: ${tutor.availability_note}`
             );
             console.log(`✅ Found tutor: ${tutor.name}`);
@@ -103,7 +114,7 @@ async function buildDBContext(intent) {
               }).filter(Boolean).join(', ') || 'N/A';
               
               const price = `${formatPrice(tutor.price_per_hour)}/hr`;
-              const rating = tutor.rating || 'N/A';
+              const rating = formatRating(tutor.rating);
               const reviews = tutor.reviews_count || 0;
               
               dbBlocks.push(
@@ -127,9 +138,11 @@ async function buildDBContext(intent) {
               }).join(', ') || 'N/A';
               
               const price = `${formatPrice(tutor.price_per_hour)}/hr`;
-              
+              const rating = formatRating(tutor.rating);
+              const reviews = tutor.reviews_count || 0;
+
               dbBlocks.push(
-                `Tutor: ${tutor.name} | Subjects: ${subs} | Price: ${price} | Reviews: ${tutor.reviews_count || 0}`
+                `Tutor: ${tutor.name} | Subjects: ${subs} | Price: ${price} | Rating: ${rating} | Reviews: ${reviews}`
               );
             });
           } else {
@@ -146,7 +159,7 @@ async function buildDBContext(intent) {
           const rating = await getTutorRatings(name);
           if (rating) {
             dbBlocks.push(
-              `Tutor: ${name} | Reviews: ${rating.reviews_count} | ` +
+              `Tutor: ${name} | Rating: ${formatRating(rating.rating)} | Reviews: ${rating.reviews_count} | ` +
               `Last review: ${rating.last_review_at ? new Date(rating.last_review_at).toLocaleDateString() : 'N/A'}`
             );
           } else {
