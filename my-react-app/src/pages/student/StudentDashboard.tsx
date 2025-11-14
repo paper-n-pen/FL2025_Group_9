@@ -477,6 +477,12 @@ export default function StudentDashboard() {
                 <Stack spacing={2}>
                   {acceptedTutors.map((tutor: any, idx: number) => {
                     const canEnter = !!tutor.sessionId && tutor.sessionStatus !== "ended";
+                    const hasRating =
+                      typeof tutor.tutorAverageRating === "number" &&
+                      !Number.isNaN(tutor.tutorAverageRating);
+                    const ratingText = hasRating
+                      ? `${tutor.tutorAverageRating.toFixed?.(1) ?? tutor.tutorAverageRating}/5 (${tutor.tutorRatingsCount || 0} reviews)`
+                      : "No ratings yet";
                     return (
                       <Card
                         key={tutor.queryId || idx}
@@ -491,6 +497,9 @@ export default function StudentDashboard() {
                           <Typography variant="h6">{tutor.tutorName}</Typography>
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                             Rate: {tutor.rate ? `$${tutor.rate}/10min` : "N/A"}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Rating: {ratingText}
                           </Typography>
                           <Button
                             variant="contained"

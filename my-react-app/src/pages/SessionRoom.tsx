@@ -131,12 +131,16 @@ export default function SessionRoom() {
     navigate("/", { replace: true });
   }, [navigate, user?.userType]);
 
-  const scheduleRedirect = useCallback(() => {
+  const scheduleRedirect = useCallback((targetPath?: string) => {
     if (redirectTimeoutRef.current) window.clearTimeout(redirectTimeoutRef.current);
     redirectTimeoutRef.current = window.setTimeout(() => {
+      if (targetPath) {
+        navigate(targetPath, { replace: true });
+        return;
+      }
       goBackToDashboard();
     }, 1200);
-  }, [goBackToDashboard]);
+  }, [goBackToDashboard, navigate]);
 
   const ensureUser = useCallback(async () => {
     const active = getActiveAuthState();
@@ -192,8 +196,17 @@ export default function SessionRoom() {
       if (payload?.sessionId?.toString() === sessionId.toString()) {
         setConfirmOpen(false);
         setIsEnding(false);
-        enqueueSnack("Session has ended. Redirecting to your dashboard...", "info");
-        scheduleRedirect();
+        const isStudent = user?.userType === "student";
+        const nextPath = isStudent && payload?.sessionId
+          ? `/student/rate-session/${payload.sessionId}`
+          : undefined;
+        enqueueSnack(
+          isStudent
+            ? "Session has ended. Redirecting to rate your tutor..."
+            : "Session has ended. Redirecting to your dashboard...",
+          "info"
+        );
+        scheduleRedirect(nextPath);
       }
     };
 
@@ -232,6 +245,7 @@ export default function SessionRoom() {
     goBackToDashboard,
     enqueueSnack,
     scheduleRedirect,
+    user?.userType,
   ]);
 
   // autoscroll chat
@@ -281,8 +295,15 @@ export default function SessionRoom() {
         endedBy: user.id,
       });
       setConfirmOpen(false);
-      enqueueSnack("Session ended successfully. Redirecting to your dashboard...", "success");
-      scheduleRedirect();
+      const isStudent = user.userType === "student";
+      const nextPath = isStudent ? `/student/rate-session/${sessionId}` : undefined;
+      enqueueSnack(
+        isStudent
+          ? "Session ended successfully. Redirecting to rate your tutor..."
+          : "Session ended successfully. Redirecting to your dashboard...",
+        "success"
+      );
+      scheduleRedirect(nextPath);
     } catch (err) {
       console.error("End session failed:", err);
       enqueueSnack("Failed to end session. Please try again.", "error");
