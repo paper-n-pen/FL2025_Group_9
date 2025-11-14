@@ -6,8 +6,8 @@ Name your repository using the following format:
 
 ## Team Members
 - **Sangwon Bae**: b.sangwon@wustl.edu; paper-n-pen
-- **Yikang Wang>**: &lt;w.yikang@wustl.edu; wangyk55
-- **<Member Name>**: <Email Address>; <Github ID>
+- **Yikang Wang**: w.yikang@wustl.edu; wangyk55
+- **\<Member Name\>**: \<Email Address\>; \<Github ID\>
 
 ## TA
 Yiren Kang
