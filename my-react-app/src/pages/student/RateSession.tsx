@@ -129,7 +129,7 @@ const RateSession = () => {
         setSelectedRating(data?.rating ?? null);
       } catch (error) {
         console.error("Failed to load session summary:", error);
-        showSnack("无法加载会话信息，请返回仪表盘重试。", "error");
+        showSnack("Failed to load session information. Please return to the dashboard and try again.", "error");
       } finally {
         setLoading(false);
       }
@@ -149,7 +149,7 @@ const RateSession = () => {
   const handleSubmitRating = async () => {
     if (!user || !sessionSummary || !sessionId) return;
     if (!selectedRating || selectedRating < 1 || selectedRating > 5) {
-      showSnack("请选择 1-5 分之间的评分", "warning");
+      showSnack("Please select a rating between 1 and 5.", "warning");
       return;
     }
 
@@ -160,13 +160,13 @@ const RateSession = () => {
         rating: selectedRating,
       });
       setSessionSummary((prev) => (prev ? { ...prev, rating: selectedRating } : prev));
-      showSnack("感谢反馈！我们会将评分同步给导师。", "success");
+      showSnack("Thanks for your feedback! We will sync the rating with the tutor.", "success");
       setTimeout(() => {
         navigate("/student/dashboard", { replace: true });
       }, 1200);
     } catch (error) {
       console.error("Failed to submit rating:", error);
-      showSnack("提交评分失败，请稍后再试。", "error");
+      showSnack("Failed to submit rating. Please try again later.", "error");
     } finally {
       setSubmitting(false);
     }
@@ -191,7 +191,7 @@ const RateSession = () => {
         >
           <CircularProgress color="secondary" />
           <Typography variant="body1" color="text.secondary">
-            正在为你加载本次会话的信息...
+            Loading session information for you...
           </Typography>
         </Box>
       );
@@ -201,10 +201,10 @@ const RateSession = () => {
       return (
         <Box textAlign="center" py={6}>
           <Typography variant="h6" mb={2}>
-            没有找到本次会话的信息
+            Session information not found
           </Typography>
           <Button variant="contained" onClick={handleSkip}>
-            返回仪表盘
+            Back to Dashboard
           </Button>
         </Box>
       );
@@ -225,10 +225,10 @@ const RateSession = () => {
           <Stack spacing={3}>
             <Box>
               <Typography variant="h4" fontWeight={800} gutterBottom>
-                为导师打个分吧
+                Rate the Tutor
               </Typography>
               <Typography variant="body1" color="rgba(226,232,240,0.8)">
-                你的反馈能帮助我们为你推荐更合适的导师，也能帮助导师持续优化授课体验。
+                Your feedback helps us recommend more suitable tutors for you and helps tutors continuously improve their teaching experience.
               </Typography>
             </Box>
 
@@ -237,20 +237,20 @@ const RateSession = () => {
             <Stack direction={{ xs: "column", md: "row" }} spacing={3}>
               <Box flex={1}>
                 <Typography variant="subtitle2" color="rgba(148,163,184,0.9)" gutterBottom>
-                  导师
+                  Tutor
                 </Typography>
                 <Typography variant="h5" fontWeight={700}>
                   {sessionSummary.tutorName}
                 </Typography>
                 {sessionSummary.ratePer10Min ? (
                   <Typography color="rgba(148,163,184,0.9)" variant="body2" mt={0.5}>
-                    课程费率：${sessionSummary.ratePer10Min}/10分钟
+                    Rate: ${sessionSummary.ratePer10Min}/10 minutes
                   </Typography>
                 ) : null}
               </Box>
               <Box flex={1}>
                 <Typography variant="subtitle2" color="rgba(148,163,184,0.9)" gutterBottom>
-                  学科
+                  Subject
                 </Typography>
                 <Stack direction="row" spacing={1} flexWrap="wrap">
                   <Chip label={sessionSummary.subject} color="primary" variant="filled" />
@@ -263,7 +263,7 @@ const RateSession = () => {
 
             <Box>
               <Typography variant="subtitle2" color="rgba(148,163,184,0.9)" gutterBottom>
-                你的问题摘要
+                Your Query Summary
               </Typography>
               <Box
                 sx={{
@@ -283,7 +283,7 @@ const RateSession = () => {
 
             <Box textAlign="center">
               <Typography variant="subtitle1" color="rgba(226,232,240,0.9)" gutterBottom>
-                本次辅导体验打几分？
+                How would you rate this tutoring session?
               </Typography>
               <Rating
                 name="session-rating"
@@ -301,8 +301,8 @@ const RateSession = () => {
               />
               <Typography variant="body2" color="rgba(148,163,184,0.9)">
                 {alreadyRated
-                  ? "你已经完成评分，可直接返回仪表盘"
-                  : "请选择 1-5 分，5 分代表非常满意"}
+                  ? "You have already rated, you can return to the dashboard"
+                  : "Please select 1-5 stars, 5 stars means very satisfied"}
               </Typography>
             </Box>
 
@@ -317,7 +317,7 @@ const RateSession = () => {
                   borderColor: "rgba(148,163,184,0.5)",
                 }}
               >
-                返回仪表盘
+                Back to Dashboard
               </Button>
               <Button
                 variant="contained"
@@ -331,7 +331,7 @@ const RateSession = () => {
                   boxShadow: "0 8px 25px rgba(79, 70, 229, 0.35)",
                 }}
               >
-                {alreadyRated ? "已完成评分" : submitting ? "提交中..." : "提交评分"}
+                {alreadyRated ? "Rating Submitted" : submitting ? "Submitting..." : "Submit Rating"}
               </Button>
             </Stack>
           </Stack>
