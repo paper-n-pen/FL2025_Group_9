@@ -565,6 +565,133 @@ router.post('/session/end', async (req, res) => {
 });
 
 // ------------------------
+// GET /queries/session/:sessionId/summary
+// ------------------------
+router.get('/session/:sessionId/summary', async (req, res) => {
+  const sessionIdNumber = Number(req.params.sessionId);
+  const studentIdNumber = Number(req.query.studentId);
+
+  if (!Number.isInteger(sessionIdNumber) || !Number.isInteger(studentIdNumber)) {
+    return res.status(400).json({ message: 'Invalid sessionId or studentId' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.id,
+              s.status,
+              s.rating,
+              s.student_id,
+              s.tutor_id,
+              q.subject,
+              q.subtopic,
+              q.query_text,
+              u.username AS tutor_name,
+              u.rate_per_10_min
+         FROM sessions s
+         JOIN queries q ON q.id = s.query_id
+         JOIN users u ON u.id = s.tutor_id
+        WHERE s.id = $1`,
+      [sessionIdNumber]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    const row = rows[0];
+    if (row.student_id !== studentIdNumber) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    res.json({
+      sessionId: row.id.toString(),
+      status: row.status,
+      rating: row.rating,
+      studentId: row.student_id,
+      tutorId: row.tutor_id,
+      tutorName: row.tutor_name,
+      subject: row.subject,
+      subtopic: row.subtopic,
+      query: row.query_text,
+      ratePer10Min:
+        row.rate_per_10_min !== null && row.rate_per_10_min !== undefined
+          ? Number(row.rate_per_10_min)
+          : null
+    });
+  } catch (error) {
+    console.error('Error fetching session summary:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ------------------------
+// POST /queries/session/:sessionId/rate
+// ------------------------
+router.post('/session/:sessionId/rate', async (req, res) => {
+  const sessionIdNumber = Number(req.params.sessionId);
+  const studentIdNumber = Number(req.body.studentId);
+  const ratingNumber = Number(req.body.rating);
+
+  if (!Number.isInteger(sessionIdNumber) || !Number.isInteger(studentIdNumber)) {
+    return res.status(400).json({ message: 'Invalid sessionId or studentId' });
+  }
+
+  if (!Number.isInteger(ratingNumber) || ratingNumber < 1 || ratingNumber > 5) {
+    return res.status(400).json({ message: 'Rating must be an integer between 1 and 5' });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const sessionResult = await client.query(
+      `SELECT s.id,
+              s.student_id,
+              s.status,
+              s.rating
+         FROM sessions s
+        WHERE s.id = $1
+        FOR UPDATE`,
+      [sessionIdNumber]
+    );
+
+    if (sessionResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    const sessionRow = sessionResult.rows[0];
+    if (sessionRow.student_id !== studentIdNumber) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    if (sessionRow.status !== 'ended') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Session must be ended before rating' });
+    }
+
+    await client.query(
+      `UPDATE sessions
+          SET rating = $1
+        WHERE id = $2`,
+      [ratingNumber, sessionIdNumber]
+    );
+
+    await client.query('COMMIT');
+    console.log('Session rated:', { sessionId: sessionIdNumber, studentId: studentIdNumber, rating: ratingNumber });
+    res.json({ message: 'Rating submitted successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error rating session:', error);
+    res.status(500).json({ message: 'Server error' });
+  } finally {
+    client.release();
+  }
+});
+
+// ------------------------
 // GET /queries/student/:studentId/responses
 // ------------------------
 router.get('/student/:studentId/responses', async (req, res) => {
@@ -589,7 +716,9 @@ router.get('/student/:studentId/responses', async (req, res) => {
               t.education AS tutor_education,
               t.rate_per_10_min,
               s.id AS session_id,
-              s.status AS session_status
+              s.status AS session_status,
+              rs.avg_rating AS tutor_avg_rating,
+              rs.ratings_count AS tutor_ratings_count
          FROM queries q
          JOIN users t ON t.id = q.accepted_tutor_id
     LEFT JOIN LATERAL (
@@ -599,6 +728,13 @@ router.get('/student/:studentId/responses', async (req, res) => {
          ORDER BY start_time DESC
             LIMIT 1
     ) s ON TRUE
+    LEFT JOIN LATERAL (
+           SELECT AVG(rating) AS avg_rating,
+                  COUNT(rating) AS ratings_count
+             FROM sessions
+            WHERE tutor_id = q.accepted_tutor_id
+              AND rating IS NOT NULL
+    ) rs ON TRUE
         WHERE q.student_id = $1
           AND q.accepted_tutor_id IS NOT NULL
      ORDER BY COALESCE(q.updated_at, q.created_at) DESC`,
@@ -621,6 +757,11 @@ router.get('/student/:studentId/responses', async (req, res) => {
       education: row.tutor_education,
       sessionId: row.session_id ? row.session_id.toString() : null,
       sessionStatus: row.session_status || null,
+      tutorAverageRating:
+        row.tutor_avg_rating !== null && row.tutor_avg_rating !== undefined
+          ? Number(row.tutor_avg_rating)
+          : null,
+      tutorRatingsCount: row.tutor_ratings_count ? Number(row.tutor_ratings_count) : 0,
       updatedAt: row.updated_at,
       createdAt: row.created_at
     }));

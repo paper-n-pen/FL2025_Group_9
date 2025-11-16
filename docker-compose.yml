@@ -15,11 +15,14 @@ services:
       - /app/node_modules
     environment:
       DATABASE_URL: postgresql://myapp_user:secret@db:5432/myapp_db
-      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
-      LLM_MODEL: ${LLM_MODEL:-llama3.2:3b}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost,http://localhost:80,http://localhost:5173}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
+      LLM_MODEL: ${LLM_MODEL:-llama3}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost}
     depends_on:
       db:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
 
   db:
@@ -43,15 +46,23 @@ services:
 
   # Ollama service - optional (can be started separately if needed)
   # Uncomment to enable Ollama in Docker
-  # ollama:
-  #   image: ollama/ollama:latest
-  #   container_name: ollama
-  #   ports:
-  #     - "11434:11434"
-  #   volumes:
-  #     - ollama_data:/root/.ollama
-  #   restart: unless-stopped
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./init-ollama.sh:/init-ollama.sh
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    entrypoint: ["sh", "/init-ollama.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "/bin/ollama list | grep -q 'llama3'"]
+      interval: 10s
+      timeout: 30s
+      retries: 20
+      start_period: 10s
 
 volumes:
   postgres_data:
-  # ollama_data:  # Uncomment if using Ollama service
+  ollama_data:  # Uncomment if using Ollama service

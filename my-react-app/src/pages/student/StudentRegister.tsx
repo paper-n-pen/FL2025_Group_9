@@ -2,7 +2,6 @@
 import React, { useState } from "react";
 import {
   Box,
-  Container,
   Typography,
   TextField,
   Button,
@@ -12,12 +11,20 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
+import { apiPath } from "../../config";
 import api from "../../lib/api";
-import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
+import { markActiveUserType, storeAuthState } from "../../utils/authStorage";
+
+type RegistrationForm = {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+};
 
 export default function StudentRegister() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<RegistrationForm>({
     name: "",
     email: "",
     password: "",
@@ -27,13 +34,16 @@ export default function StudentRegister() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setForm((prevForm: RegistrationForm) => ({
+      ...prevForm,
+      [event.target.name]: event.target.value,
+    }));
     setError(""); // Clear error on input change
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setError("");
     setSuccess("");
     setLoading(true);
@@ -53,32 +63,43 @@ export default function StudentRegister() {
 
     try {
       console.log("Submitting registration form...");
-      const user = await api.post('/api/auth/register', {
-        role: 'student',
-        name: form.name,
+      await api.post(apiPath("/register"), {
+        username: form.name,
+        email: form.email,
+        password: form.password,
+        user_type: "student",
+      });
+
+      await api.post(apiPath("/login"), {
         email: form.email,
         password: form.password,
       });
 
-      console.log("Registration successful:", user);
-      
-      // Store auth state
-      storeAuthState("student", null, {
-        id: user.id,
-        username: user.name,
-        email: user.email,
-        userType: user.role,
-      });
-      markActiveUserType("student");
+      const me = await api.get(apiPath("/me"));
+      const user = me?.user;
+      if (!user) {
+        throw new Error("Unable to verify new student account");
+      }
 
-      setSuccess("✅ Account created successfully!");
-      setTimeout(() => {
-        navigate("/student/dashboard", { replace: true });
-      }, 1000);
-    } catch (err: any) {
+      const resolvedRole = (user.role || user.userType || "student").toLowerCase();
+      const typeKey = resolvedRole === "tutor" ? "tutor" : "student";
+      const normalizedUser = {
+        ...user,
+        userType: typeKey,
+        name: user.name || user.username,
+        username: user.username || user.name || user.email,
+      };
+
+      storeAuthState(typeKey, null, normalizedUser);
+      markActiveUserType(typeKey);
+
+      setSuccess("✅ Account created! Taking you to your dashboard...");
+      navigate(`/${typeKey}/dashboard`, { replace: true });
+    } catch (err: unknown) {
       console.error("Registration error:", err);
       // Show exact server error message
-      const errorMessage = err.message || "Registration failed. Please try again.";
+      const errorMessage =
+        err instanceof Error ? err.message : "Registration failed. Please try again.";
       setError(`❌ ${errorMessage}`);
     } finally {
       setLoading(false);

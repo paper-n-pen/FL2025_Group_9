@@ -1,58 +1,74 @@
 // src/pages/student/StudentLogin.tsx
 import React, { useState } from "react";
 import {
-  Box, Typography, TextField, Button, Link as MuiLink, Paper, Alert, CircularProgress
+  Box,
+  Typography,
+  TextField,
+  Button,
+  Link as MuiLink,
+  Paper,
+  Alert,
+  CircularProgress,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import api from "../../lib/api";
 import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
+import { apiPath } from "../../config";
+import api from "../../lib/api";
+
+type FormState = {
+  email: string;
+  password: string;
+};
 
 export default function StudentLogin() {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ email: "", password: "" });
+  const [form, setForm] = useState<FormState>({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setForm((prevForm: FormState) => ({
+      ...prevForm,
+      [event.target.name]: event.target.value,
+    }));
     setError(""); // Clear error on input change
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      console.log("Attempting login...");
-      const user = await api.post('/api/auth/login', {
-        email: form.email,
-        password: form.password,
-      });
+      await api.post(apiPath("/login"), form);
 
-      console.log("Login successful! User:", user);
+      const data = await api.get(apiPath("/me"));
 
-      // Store auth state
-      storeAuthState("student", null, {
-        id: user.id,
-        username: user.name,
-        email: user.email,
-        userType: user.role,
-      });
+      const user = data?.user;
+      if (!user) {
+        throw new Error("Missing user after verification");
+      }
+
+      const resolvedRole = (user.role || user.userType || "student").toLowerCase();
+      const normalizedUser = {
+        ...user,
+        userType: resolvedRole,
+        name: user.name || user.username,
+      };
+
+      storeAuthState("student", null, normalizedUser);
       markActiveUserType("student");
 
-      // Navigate based on role
-      if (user.role?.toLowerCase() === "tutor") {
-        console.log("Navigating to /tutor/dashboard");
+      if (resolvedRole === "tutor") {
         navigate("/tutor/dashboard", { replace: true });
       } else {
-        console.log("Navigating to /student/dashboard");
         navigate("/student/dashboard", { replace: true });
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Login failed:", err);
       // Show exact server error message
-      const errorMessage = err.message || "Login failed. Please try again.";
+      const errorMessage =
+        err instanceof Error ? err.message : "Login failed. Please try again.";
       setError(errorMessage);
     } finally {
       setLoading(false);
