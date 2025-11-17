@@ -1,3 +1,5 @@
+// my-react-app/src/config.ts
+
 const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, "");
 
 const ensureLeadingSlash = (value: string): string =>

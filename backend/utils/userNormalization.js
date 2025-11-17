@@ -1,19 +1,25 @@
 // backend/utils/userNormalization.js
-// Shared helpers for normalizing user identity fields
-
 const normalizeEmail = (value) => {
-  if (value === undefined || value === null) {
-    return "";
-  }
+  if (!value) return "";
   return String(value).trim().toLowerCase();
 };
 
-const normalizeUserType = (value, fallback = "student") => {
-  const source = value ?? fallback ?? "";
-  if (source === undefined || source === null) {
-    return "";
+/**
+ * Strictly normalize the user type.
+ * Only 'student' or 'tutor' are valid.
+ * Anything else is rejected.
+ */
+const normalizeUserType = (value, fallback = null) => {
+  if (!value && fallback) value = fallback;
+  if (!value) return null;
+
+  const normalized = String(value).trim().toLowerCase();
+
+  if (normalized === "student" || normalized === "tutor") {
+    return normalized;
   }
-  return String(source).trim().toLowerCase();
+
+  return null; // force validation errors, never silently convert
 };
 
 module.exports = {
