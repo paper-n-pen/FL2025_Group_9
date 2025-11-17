@@ -73,6 +73,7 @@ export default function StudentRegister() {
       await api.post(apiPath("/login"), {
         email: form.email,
         password: form.password,
+        role: "student",
       });
 
       const me = await api.get(apiPath("/me"));
@@ -100,7 +101,10 @@ export default function StudentRegister() {
       // Show exact server error message
       const errorMessage =
         err instanceof Error ? err.message : "Registration failed. Please try again.";
-      setError(`❌ ${errorMessage}`);
+      const friendlyMessage = /registered as student/i.test(errorMessage)
+        ? "This email already has a student account. Please sign in or reset your password."
+        : errorMessage;
+      setError(`❌ ${friendlyMessage}`);
     } finally {
       setLoading(false);
     }
@@ -135,6 +139,9 @@ export default function StudentRegister() {
         </Typography>
         <Typography variant="body1" color="text.secondary" mb={3}>
           Create your account to start learning with expert tutors.
+        </Typography>
+        <Typography variant="body2" color="text.secondary" mb={3}>
+          Already have a tutor profile? You can reuse the same email to open a student account.
         </Typography>
 
         <Box component="form" onSubmit={handleSubmit}>

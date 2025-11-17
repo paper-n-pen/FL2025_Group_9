@@ -67,6 +67,7 @@ import {
   Alert,
   Avatar,
   Divider,
+  MenuItem,
 } from "@mui/material";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 import { apiPath } from "./config";
@@ -79,6 +80,7 @@ interface LoginResponse {
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<"" | "student" | "tutor">("");
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
@@ -86,7 +88,11 @@ export default function Login() {
     event.preventDefault();
     setError("");
     try {
-      const res = await api.post(apiPath("/login"), { email, password }) as LoginResponse | undefined;
+      const res = await api.post(apiPath("/login"), {
+        email,
+        password,
+        role: role || undefined,
+      }) as LoginResponse | undefined;
       if (!res?.token) {
         setError("Login failed.");
         return;
@@ -95,6 +101,10 @@ export default function Login() {
       navigate("/dashboard");
     } catch (err) {
       if (err instanceof Error) {
+        if (!role && /Multiple accounts/i.test(err.message || "")) {
+          setError("This email matches multiple accounts. Please select student or tutor above.");
+          return;
+        }
         setError(err.message || "Login failed.");
       } else {
         setError("An unexpected error occurred.");
@@ -161,6 +171,20 @@ export default function Login() {
               required
               fullWidth
             />
+            <TextField
+              label="Role"
+              select
+              value={role}
+              onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                setRole(event.target.value as "" | "student" | "tutor")
+              }
+              helperText="Choose the account type if this email has both"
+              fullWidth
+            >
+              <MenuItem value="">Auto detect</MenuItem>
+              <MenuItem value="student">Student</MenuItem>
+              <MenuItem value="tutor">Tutor</MenuItem>
+            </TextField>
 
             <Button
               variant="contained"
