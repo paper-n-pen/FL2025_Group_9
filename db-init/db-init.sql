@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   username VARCHAR(50) NOT NULL,
-  email VARCHAR(100) UNIQUE NOT NULL,
+  email VARCHAR(100) NOT NULL,
   password_hash TEXT NOT NULL,
   user_type VARCHAR(20) NOT NULL DEFAULT 'student',
   bio TEXT,
@@ -64,3 +64,19 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
+
+-- Allow one student and one tutor account per email (case-insensitive)
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.table_constraints
+    WHERE constraint_name = 'users_email_key'
+      AND table_name = 'users'
+  ) THEN
+    ALTER TABLE users DROP CONSTRAINT users_email_key;
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_role_unique
+  ON users (LOWER(email), user_type);

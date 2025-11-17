@@ -2,6 +2,10 @@
 // Helper functions for database-backed user operations
 
 const { pool } = require('./db');
+const { normalizeEmail } = require('./utils/userNormalization');
+
+const userSelectFields = `id, username, email, password_hash, user_type, bio, education, specialties,
+            rate_per_10_min, created_at, updated_at`;
 
 const mapUserRow = (row) => {
   if (!row) {
@@ -25,21 +29,31 @@ const mapUserRow = (row) => {
   };
 };
 
-const findUserByEmail = async (email) => {
-  const result = await pool.query(
-    `SELECT id, username, email, password_hash, user_type, bio, education, specialties,
-            rate_per_10_min, created_at, updated_at
+const findUserByEmail = async (email, userType) => {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const params = [normalizedEmail];
+  let query = `SELECT ${userSelectFields}
      FROM users
-     WHERE email = $1`,
-    [email]
-  );
+     WHERE LOWER(email) = LOWER($1)`;
+
+  if (userType) {
+    query += ` AND user_type = $2`;
+    params.push(userType);
+  }
+
+  query += ` ORDER BY created_at ASC`;
+
+  const result = await pool.query(query, params);
   return mapUserRow(result.rows[0]);
 };
 
 const findUserById = async (id) => {
   const result = await pool.query(
-    `SELECT id, username, email, password_hash, user_type, bio, education, specialties,
-            rate_per_10_min, created_at, updated_at
+    `SELECT ${userSelectFields}
      FROM users
      WHERE id = $1`,
     [id]

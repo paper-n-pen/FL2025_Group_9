@@ -40,7 +40,7 @@ export default function TutorLogin() {
     setLoading(true);
 
     try {
-      await api.post(apiPath("/login"), form);
+      await api.post(apiPath("/login"), { ...form, role: "tutor" });
 
       const data = await api.get(apiPath("/me"));
 
@@ -73,7 +73,10 @@ export default function TutorLogin() {
       // Show exact server error message
       const errorMessage =
         err instanceof Error ? err.message : "Login failed. Please try again.";
-      setError(errorMessage);
+      const friendlyMessage = /matching login page/i.test(errorMessage)
+        ? "This email is linked to a student account. Please use the student login page."
+        : errorMessage;
+      setError(friendlyMessage);
     } finally {
       setLoading(false);
     }
