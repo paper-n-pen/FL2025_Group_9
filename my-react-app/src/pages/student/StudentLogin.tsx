@@ -40,7 +40,7 @@ export default function StudentLogin() {
     setLoading(true);
 
     try {
-      await api.post(apiPath("/login"), form);
+      await api.post(apiPath("/login"), { ...form, role: "student" });
 
       const data = await api.get(apiPath("/me"));
 
@@ -69,7 +69,10 @@ export default function StudentLogin() {
       // Show exact server error message
       const errorMessage =
         err instanceof Error ? err.message : "Login failed. Please try again.";
-      setError(errorMessage);
+      const friendlyMessage = /matching login page/i.test(errorMessage)
+        ? "This email is linked to a tutor account. Please use the tutor login page."
+        : errorMessage;
+      setError(friendlyMessage);
     } finally {
       setLoading(false);
     }

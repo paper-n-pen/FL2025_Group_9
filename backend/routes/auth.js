@@ -4,6 +4,7 @@ const router = express.Router();
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const { pool } = require("../db");
+const { normalizeEmail, normalizeUserType } = require("../utils/userNormalization");
 
 const isProd = process.env.NODE_ENV === "production";
 
@@ -26,13 +27,14 @@ router.post("/register", async (req, res) => {
 
   // Normalize: use 'name' or 'username', 'role' or 'user_type'
   const userName = name || username;
-  const userRole = role || user_type || 'student';
+  const normalizedEmail = normalizeEmail(email);
+  const userRole = normalizeUserType(role ?? user_type, "student");
 
-  console.log("Registration attempt:", { name: userName, email, role: userRole });
+  console.log("Registration attempt:", { name: userName, email: normalizedEmail, role: userRole });
 
   // Validation
-  if (!userName || !email || !password) {
-    console.log("Missing required fields:", { name: !!userName, email: !!email, password: !!password });
+  if (!userName || !normalizedEmail || !password) {
+    console.log("Missing required fields:", { name: !!userName, email: !!normalizedEmail, password: !!password });
     return res
       .status(400)
       .json({ error: "name, email, and password are required" });
@@ -43,13 +45,15 @@ router.post("/register", async (req, res) => {
   }
 
   try {
-    // Check if user already exists
+    // Check if user already exists with the same role
     const existingUser = await pool.query(
-      "SELECT * FROM users WHERE email = $1",
-      [email]
+      `SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND user_type = $2`,
+      [normalizedEmail, userRole]
     );
     if (existingUser.rows.length > 0) {
-      return res.status(409).json({ error: "Email already registered" });
+      return res
+        .status(409)
+        .json({ error: `Email already registered as ${userRole}` });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -88,7 +92,7 @@ router.post("/register", async (req, res) => {
         `,
         [
           userName,
-          email,
+          normalizedEmail,
           hashedPassword,
           "tutor",
           education || "",
@@ -113,7 +117,7 @@ router.post("/register", async (req, res) => {
       VALUES ($1, $2, $3, $4)
       RETURNING id, username as name, email, user_type as role
       `,
-      [userName, email, hashedPassword, "student"]
+      [userName, normalizedEmail, hashedPassword, "student"]
     );
 
     const user = result.rows[0];
@@ -136,17 +140,47 @@ router.post("/register", async (req, res) => {
 
 // --- LOGIN (sets cookie) ---
 router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-  console.log("POST /login", req.body?.email);
+  const { email, password, role, user_type } = req.body;
+  const normalizedEmail = normalizeEmail(email);
+  const requestedRole = normalizeUserType(role ?? user_type, "");
+  console.log("POST /login", normalizedEmail);
 
-  if (!email || !password) {
+  if (!normalizedEmail || !password) {
     return res.status(400).json({ error: "Email and password are required" });
   }
 
   try {
-    const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
+    const values = [normalizedEmail];
+    let loginQuery = "SELECT * FROM users WHERE LOWER(email) = LOWER($1)";
+
+    if (requestedRole) {
+      loginQuery += " AND user_type = $2";
+      values.push(requestedRole);
+    }
+
+    loginQuery += " ORDER BY user_type ASC";
+
+    const result = await pool.query(loginQuery, values);
     if (result.rows.length === 0) {
+      if (requestedRole) {
+        const roleCheck = await pool.query(
+          `SELECT DISTINCT user_type FROM users WHERE LOWER(email) = LOWER($1)` ,
+          [normalizedEmail]
+        );
+        if (roleCheck.rows.length > 0) {
+          const availableRoles = roleCheck.rows.map((row) => row.user_type).join(" & ");
+          return res.status(409).json({
+            error: `Email registered as ${availableRoles}. Please use the matching login page.`,
+          });
+        }
+      }
       return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    if (!requestedRole && result.rows.length > 1) {
+      return res.status(409).json({
+        error: "Multiple accounts found for this email. Please select student or tutor login.",
+      });
     }
 
     const user = result.rows[0];

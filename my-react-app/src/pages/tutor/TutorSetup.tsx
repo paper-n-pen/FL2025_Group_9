@@ -97,6 +97,7 @@ export default function TutorSetup() {
       await api.post(apiPath("/login"), {
         email: form.email,
         password: form.password,
+        role: "tutor",
       });
 
       const me = await api.get(apiPath("/me"));
@@ -124,7 +125,10 @@ export default function TutorSetup() {
       // Show exact server error message
       const errorMessage =
         err instanceof Error ? err.message : "Registration failed. Please try again.";
-      setError(`❌ ${errorMessage}`);
+      const friendlyMessage = /registered as tutor/i.test(errorMessage)
+        ? "This email already has a tutor profile. Please sign in instead."
+        : errorMessage;
+      setError(`❌ ${friendlyMessage}`);
     } finally {
       setLoading(false);
     }
@@ -159,6 +163,9 @@ export default function TutorSetup() {
         </Typography>
         <Typography variant="body1" color="text.secondary" mb={3}>
           Create your tutor account and start sharing your expertise.
+        </Typography>
+        <Typography variant="body2" color="text.secondary" mb={3}>
+          Already a student here? You can reuse that email for your tutor profile.
         </Typography>
 
         <Box component="form" onSubmit={handleSubmit}>
