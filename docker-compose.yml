@@ -47,7 +47,7 @@ services:
   # Ollama service - optional (can be started separately if needed)
   # Uncomment to enable Ollama in Docker
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.12.11
     container_name: ollama
     ports:
       - "11434:11434"
