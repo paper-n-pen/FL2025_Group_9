@@ -829,4 +829,64 @@ router.put('/profile', async (req, res) => {
   }
 });
 
+// GET /tutors/:id
+router.get('/tutors/:id', async (req, res) => {
+  const tutorId = Number(req.params.id);
+  if (!Number.isInteger(tutorId)) {
+    return res.status(400).json({ message: 'Invalid tutor ID' });
+  }
+
+  try {
+    const tutorResult = await pool.query(
+      `SELECT id,
+              username,
+              bio,
+              education,
+              specialties,
+              rate_per_10_min,
+              created_at,
+              updated_at
+         FROM users
+        WHERE id = $1
+          AND user_type = 'tutor'`,
+      [tutorId]
+    );
+
+    if (tutorResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Tutor not found' });
+    }
+
+    const tutor = tutorResult.rows[0];
+
+    // Compute average rating and count (from sessions table)
+    const statsResult = await pool.query(
+      `SELECT 
+          AVG(rating) AS avg_rating,
+          COUNT(rating) AS ratings_count
+       FROM sessions
+      WHERE tutor_id = $1
+        AND rating IS NOT NULL`,
+      [tutorId]
+    );
+
+    const { avg_rating, ratings_count } = statsResult.rows[0];
+
+    res.json({
+      id: tutor.id,
+      name: tutor.username,
+      bio: tutor.bio || "This tutor hasn't added a bio yet.",
+      education: tutor.education || "Education not specified",
+      specialties: tutor.specialties || [],
+      rate: tutor.rate_per_10_min || null,
+      averageRating: avg_rating ? Number(avg_rating).toFixed(1) : null,
+      ratingsCount: ratings_count ? Number(ratings_count) : 0,
+      createdAt: tutor.created_at,
+      updatedAt: tutor.updated_at
+    });
+  } catch (err) {
+    console.error("Error fetching tutor details:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 module.exports = { router, setIO };

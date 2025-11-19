@@ -494,7 +494,14 @@ export default function StudentDashboard() {
                         }}
                       >
                         <CardContent>
-                          <Typography variant="h6">{tutor.tutorName}</Typography>
+                        <Typography
+                          variant="h6"
+                          color="primary"
+                          sx={{ cursor: "pointer", textDecoration: "underline" }}
+                          onClick={() => navigate(`/tutor/${tutor.tutorId}`)}
+                        >
+                          {tutor.tutorName}
+                        </Typography>
                           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                             Rate: {tutor.rate ? `$${tutor.rate}/10min` : "N/A"}
                           </Typography>

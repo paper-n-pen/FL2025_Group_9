@@ -4,65 +4,94 @@ const router = express.Router();
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const { pool } = require("../db");
-const { normalizeEmail, normalizeUserType } = require("../utils/userNormalization");
+const { normalizeEmail } = require("../utils/userNormalization");
 
 const isProd = process.env.NODE_ENV === "production";
 
-// --- REGISTER ---
+/**
+ * Strictly normalize role.
+ * Only "student" or "tutor" are valid.
+ * Anything else -> null (handled as error in the route).
+ */
+const normalizeRole = (value) => {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === "student" || normalized === "tutor") {
+    return normalized;
+  }
+  return null;
+};
+
+// -----------------------------
+// POST /register
+// -----------------------------
 router.post("/register", async (req, res) => {
   const {
     name,
-    username, // support both name and username for backward compatibility
+    username,       // backward compatibility
     email,
     password,
     role,
-    user_type, // support both role and user_type for backward compatibility
+    user_type,      // backward compatibility
     education,
-    subjects,
-    specialties, // support both subjects and specialties
-    price_per_hour,
-    rate,
+    specialties,
+    subjects,       // backward compatibility for older payloads
+    price_per_hour, // optional
     rate_per_10_min,
+    rate            // optional alias
   } = req.body;
 
-  // Normalize: use 'name' or 'username', 'role' or 'user_type'
-  const userName = name || username;
+  // --- Normalize basic fields ---
+  const userName = (name || username || "").trim();
   const normalizedEmail = normalizeEmail(email);
-  const userRole = normalizeUserType(role ?? user_type, "student");
 
-  console.log("Registration attempt:", { name: userName, email: normalizedEmail, role: userRole });
+  // If role/user_type omitted, default to "student" to match old behavior *safely*
+  const rawRole = (role ?? user_type ?? "student");
+  const userRole = normalizeRole(rawRole);
 
-  // Validation
+  if (!userRole) {
+    return res.status(400).json({
+      error: "Invalid user role. Must be 'student' or 'tutor'.",
+    });
+  }
+
   if (!userName || !normalizedEmail || !password) {
-    console.log("Missing required fields:", { name: !!userName, email: !!normalizedEmail, password: !!password });
-    return res
-      .status(400)
-      .json({ error: "name, email, and password are required" });
+    return res.status(400).json({
+      error: "name, email, and password are required",
+    });
   }
 
   if (password.length < 6) {
-    return res.status(400).json({ error: "Password must be at least 6 characters" });
+    return res.status(400).json({
+      error: "Password must be at least 6 characters",
+    });
   }
 
   try {
-    // Check if user already exists with the same role
-    const existingUser = await pool.query(
-      `SELECT id FROM users WHERE LOWER(email) = LOWER($1) AND user_type = $2`,
+    // Ensure email+role is unique (matches your UNIQUE index)
+    const existing = await pool.query(
+      `SELECT id 
+         FROM users 
+        WHERE LOWER(email) = LOWER($1) AND user_type = $2`,
       [normalizedEmail, userRole]
     );
-    if (existingUser.rows.length > 0) {
-      return res
-        .status(409)
-        .json({ error: `Email already registered as ${userRole}` });
+
+    if (existing.rows.length > 0) {
+      return res.status(409).json({
+        error: `Email already registered as ${userRole}.`,
+      });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 10);
 
-    // Normalize specialties/subjects: ensure array format
+    // ---------- SPECIALTIES NORMALIZATION ----------
     let parsedSpecialties = [];
-    const specialtiesInput = subjects || specialties;
+    const specialtiesInput = specialties || subjects;
+
     if (Array.isArray(specialtiesInput)) {
-      parsedSpecialties = specialtiesInput;
+      parsedSpecialties = specialtiesInput
+        .map((s) => String(s).trim())
+        .filter(Boolean);
     } else if (typeof specialtiesInput === "string" && specialtiesInput.trim() !== "") {
       parsedSpecialties = specialtiesInput
         .split(",")
@@ -70,34 +99,47 @@ router.post("/register", async (req, res) => {
         .filter(Boolean);
     }
 
-    // Normalize rate (support both price_per_hour and rate_per_10_min)
-    let rateValue = null;
+    // ---------- RATE NORMALIZATION (to rate_per_10_min) ----------
+    let normalizedRate = null;
     if (price_per_hour !== undefined && price_per_hour !== null) {
-      // Convert hourly rate to per 10 minutes: hourly / 6
-      rateValue = Number(price_per_hour) / 6;
+      const hourly = Number(price_per_hour);
+      if (Number.isNaN(hourly) || hourly < 0) {
+        return res.status(400).json({ error: "price_per_hour must be a valid non-negative number" });
+      }
+      normalizedRate = hourly / 6;
     } else if (rate_per_10_min !== undefined && rate_per_10_min !== null) {
-      rateValue = Number(rate_per_10_min);
+      const r = Number(rate_per_10_min);
+      if (Number.isNaN(r) || r < 0) {
+        return res.status(400).json({ error: "rate_per_10_min must be a valid non-negative number" });
+      }
+      normalizedRate = r;
     } else if (rate !== undefined && rate !== null) {
-      rateValue = Number(rate);
+      const r = Number(rate);
+      if (Number.isNaN(r) || r < 0) {
+        return res.status(400).json({ error: "rate must be a valid non-negative number" });
+      }
+      normalizedRate = r;
     }
 
-    // --- Tutor registration ---
+    // ===========================
+    // TUTOR REGISTRATION
+    // ===========================
     if (userRole === "tutor") {
       const result = await pool.query(
         `
         INSERT INTO users
-          (username, email, password_hash, user_type, education, specialties, rate_per_10_min)
-        VALUES ($1, $2, $3, $4, $5, $6::text[], $7)
-        RETURNING id, username as name, email, user_type as role
+          (username, email, password_hash, user_type, bio, education, specialties, rate_per_10_min)
+        VALUES ($1, $2, $3, 'tutor', $4, $5, $6::text[], $7)
+        RETURNING id, username AS name, email, user_type AS role
         `,
         [
           userName,
           normalizedEmail,
-          hashedPassword,
-          "tutor",
+          passwordHash,
+          "",                        // default empty bio
           education || "",
           parsedSpecialties,
-          rateValue,
+          normalizedRate,
         ]
       );
 
@@ -110,80 +152,88 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // --- Student registration ---
-    const result = await pool.query(
+    // ===========================
+    // STUDENT REGISTRATION
+    // ===========================
+    const studentResult = await pool.query(
       `
       INSERT INTO users (username, email, password_hash, user_type)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id, username as name, email, user_type as role
+      VALUES ($1, $2, $3, 'student')
+      RETURNING id, username AS name, email, user_type AS role
       `,
-      [userName, normalizedEmail, hashedPassword, "student"]
+      [userName, normalizedEmail, passwordHash]
     );
 
-    const user = result.rows[0];
-    res.status(201).json({
-      id: user.id,
-      role: user.role,
-      name: user.name,
-      email: user.email,
+    const student = studentResult.rows[0];
+    return res.status(201).json({
+      id: student.id,
+      role: student.role,
+      name: student.name,
+      email: student.email,
     });
   } catch (err) {
     console.error("Registration failed:", err);
-    console.error("Error stack:", err.stack);
-    const errorMessage = err.message || "Server error during registration. Check console logs.";
-    console.error("Sending error response:", { status: 500, error: errorMessage });
-    res.status(500).json({
-      error: errorMessage,
-    });
+    return res.status(500).json({ error: "Server error during registration." });
   }
 });
 
-// --- LOGIN (sets cookie) ---
+// -----------------------------
+// POST /login
+// -----------------------------
 router.post("/login", async (req, res) => {
   const { email, password, role, user_type } = req.body;
   const normalizedEmail = normalizeEmail(email);
-  const requestedRole = normalizeUserType(role ?? user_type, "");
-  console.log("POST /login", normalizedEmail);
+  const requestedRole = normalizeRole(role ?? user_type ?? null);
 
   if (!normalizedEmail || !password) {
     return res.status(400).json({ error: "Email and password are required" });
   }
 
   try {
-    const values = [normalizedEmail];
-    let loginQuery = "SELECT * FROM users WHERE LOWER(email) = LOWER($1)";
+    let user = null;
 
     if (requestedRole) {
-      loginQuery += " AND user_type = $2";
-      values.push(requestedRole);
-    }
+      // Explicit role: student or tutor
+      const result = await pool.query(
+        `SELECT * 
+           FROM users 
+          WHERE LOWER(email) = LOWER($1)
+            AND user_type = $2
+          ORDER BY id ASC`,
+        [normalizedEmail, requestedRole]
+      );
 
-    loginQuery += " ORDER BY user_type ASC";
-
-    const result = await pool.query(loginQuery, values);
-    if (result.rows.length === 0) {
-      if (requestedRole) {
-        const roleCheck = await pool.query(
-          `SELECT DISTINCT user_type FROM users WHERE LOWER(email) = LOWER($1)` ,
-          [normalizedEmail]
-        );
-        if (roleCheck.rows.length > 0) {
-          const availableRoles = roleCheck.rows.map((row) => row.user_type).join(" & ");
-          return res.status(409).json({
-            error: `Email registered as ${availableRoles}. Please use the matching login page.`,
-          });
-        }
+      if (result.rows.length === 0) {
+        return res.status(401).json({
+          error: `No ${requestedRole} account found for this email.`,
+        });
       }
-      return res.status(401).json({ error: "Invalid email or password" });
+
+      user = result.rows[0];
+    } else {
+      // No explicit role: check how many roles exist for this email
+      const result = await pool.query(
+        `SELECT * 
+           FROM users 
+          WHERE LOWER(email) = LOWER($1)
+          ORDER BY user_type ASC`,
+        [normalizedEmail]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      if (result.rows.length > 1) {
+        const availableRoles = result.rows.map((row) => row.user_type).join(" & ");
+        return res.status(409).json({
+          error: `Multiple accounts found (${availableRoles}). Please use the student or tutor login page.`,
+        });
+      }
+
+      user = result.rows[0];
     }
 
-    if (!requestedRole && result.rows.length > 1) {
-      return res.status(409).json({
-        error: "Multiple accounts found for this email. Please select student or tutor login.",
-      });
-    }
-
-    const user = result.rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: "Invalid email or password" });
@@ -191,15 +241,15 @@ router.post("/login", async (req, res) => {
 
     const token = jwt.sign(
       { id: user.id, role: user.user_type },
-      process.env.JWT_SECRET || 'dev-secret-change-me',
+      process.env.JWT_SECRET || "dev-secret-change-me",
       { expiresIn: "7d" }
     );
 
-    // Cookie settings: dev-safe (secure: false, sameSite: 'lax')
+    // Single canonical cookie name "token" (still read authToken in /me for compatibility)
     res.cookie("token", token, {
       httpOnly: true,
-      secure: false,     // dev only; set true behind HTTPS in prod
-      sameSite: 'lax',
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
       path: "/",
     });
@@ -210,28 +260,39 @@ router.post("/login", async (req, res) => {
       name: user.username,
       email: user.email,
     };
-    console.log("Login successful for:", user.email, "role:", user.user_type);
-    res.status(200).json(responseData);
+
+    console.log("Login successful:", user.email, "role:", user.user_type);
+    return res.status(200).json(responseData);
   } catch (err) {
     console.error("Login error:", err);
-    res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 });
 
-// --- AUTH CHECK (/me) ---
+// -----------------------------
+// GET /me
+// -----------------------------
 router.get("/me", async (req, res) => {
   try {
-    // Support both 'token' and 'authToken' cookie names for backward compatibility
+    // Support both 'token' and legacy 'authToken'
     const token = req.cookies?.token || req.cookies?.authToken;
     if (!token) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret-change-me');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-secret-change-me");
 
     const result = await pool.query(
-      `SELECT id, username, email, user_type, bio, education, specialties, rate_per_10_min
-       FROM users WHERE id = $1`,
+      `SELECT id,
+              username,
+              email,
+              user_type,
+              bio,
+              education,
+              specialties,
+              rate_per_10_min
+         FROM users
+        WHERE id = $1`,
       [decoded.id]
     );
 
@@ -242,24 +303,29 @@ router.get("/me", async (req, res) => {
     const row = result.rows[0];
     const user = {
       id: row.id,
-      role: row.user_type,
+      role: row.user_type,                     // "student" or "tutor"
       name: row.username,
+      username: row.username,
       email: row.email,
       bio: row.bio || "",
       education: row.education || "",
       specialties: row.specialties || [],
-      ratePer10Min: row.rate_per_10_min || 0,
+      ratePer10Min:
+        row.rate_per_10_min !== null && row.rate_per_10_min !== undefined
+          ? Number(row.rate_per_10_min)
+          : null,
     };
 
-    res.json({ user });
+    return res.json({ user });
   } catch (err) {
     console.error("Error in /me:", err);
-    res.status(401).json({ error: "Invalid or expired token" });
+    return res.status(401).json({ error: "Invalid or expired token" });
   }
 });
 
-
-// --- LOGOUT ---
+// -----------------------------
+// POST /logout
+// -----------------------------
 router.post("/logout", (req, res) => {
   // Clear both cookie names for backward compatibility
   res.clearCookie("token", {
@@ -274,7 +340,8 @@ router.post("/logout", (req, res) => {
     sameSite: isProd ? "none" : "lax",
     path: "/",
   });
-  res.status(204).send();
+
+  return res.status(204).send();
 });
 
 module.exports = router;

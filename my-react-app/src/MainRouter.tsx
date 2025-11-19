@@ -15,6 +15,7 @@ const StudentDashboard  = lazy(() => import("./pages/student/StudentDashboard"))
 const RateSession       = lazy(() => import("./pages/student/RateSession"));
 const TutorDashboard    = lazy(() => import("./pages/tutor/TutorDashboard"));
 const TutorProfile      = lazy(() => import("./pages/tutor/TutorProfile"));
+const TutorProfileView      = lazy(() => import("./pages/tutor/TutorProfileView"));
 const SessionRoom       = lazy(() => import("./pages/SessionRoom"));
 
 export default function MainRouter() {
@@ -41,6 +42,7 @@ export default function MainRouter() {
               <Route path="/tutor/dashboard" element={<TutorDashboard />} />
               <Route path="/tutor/profile" element={<TutorProfile />} />
               <Route path="/session/:sessionId" element={<SessionRoom />} />
+              <Route path="/tutor/:tutorId" element={<TutorProfileView />} />
             </Route>
 
             {/* ---------- Fallback ---------- */}
