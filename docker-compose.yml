@@ -23,7 +23,7 @@ services:
       db:
         condition: service_healthy
       ollama:
-        condition: service_started
+        condition: service_healthy
 
   db:
     image: postgres:16-alpine
