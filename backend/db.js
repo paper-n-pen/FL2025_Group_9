@@ -2,15 +2,53 @@
 const { Pool } = require("pg");
 require("dotenv").config();
 
+function parseBoolean(value) {
+  if (value === undefined || value === null) return undefined;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on", "require"].includes(normalized)) return true;
+  if (["0", "false", "no", "off", "disable", "disabled"].includes(normalized)) return false;
+  return undefined;
+}
+
+function shouldUseSSL() {
+  const explicitFlag =
+    parseBoolean(process.env.DB_SSL) ??
+    parseBoolean(process.env.DATABASE_SSL) ??
+    (() => {
+      const mode = (process.env.PGSSLMODE || "").toLowerCase();
+      if (!mode) return undefined;
+      if (mode === "disable") return false;
+      if (["require", "verify-ca", "verify-full"].includes(mode)) return true;
+      return undefined;
+    })();
+
+  if (typeof explicitFlag === "boolean") {
+    return explicitFlag;
+  }
+
+  return process.env.NODE_ENV === "production";
+}
+
+function getSslConfig() {
+  if (!shouldUseSSL()) {
+    return false;
+  }
+
+  const rejectUnauthorized =
+    parseBoolean(process.env.DB_SSL_REJECT_UNAUTHORIZED) ??
+    parseBoolean(process.env.PGSSLREJECTUNAUTHORIZED);
+
+  return {
+    rejectUnauthorized: rejectUnauthorized !== false,
+  };
+}
+
 // Read DB settings from DATABASE_URL or fallback to individual env vars
 function getDbConfig() {
   if (process.env.DATABASE_URL) {
     return {
       connectionString: process.env.DATABASE_URL,
-      ssl:
-        process.env.NODE_ENV === "production"
-          ? { rejectUnauthorized: false } // ✅ allow SSL for Render/Heroku
-          : false,
+      ssl: getSslConfig(),
     };
   }
   
@@ -32,6 +70,7 @@ function getDbConfig() {
     database: database || "myapp_db",
     password: password || "secret",
     port: parseInt(port || "5432", 10),
+    ssl: getSslConfig(),
   };
 }
 

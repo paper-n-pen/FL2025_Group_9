@@ -8,6 +8,24 @@ const { normalizeEmail } = require("../utils/userNormalization");
 
 const isProd = process.env.NODE_ENV === "production";
 
+const parseBooleanEnv = (value, fallback) => {
+  if (value === undefined || value === null) return fallback;
+  const str = String(value).trim().toLowerCase();
+  if (str === "true") return true;
+  if (str === "false") return false;
+  return fallback;
+};
+
+// Allow overriding secure cookies so local HTTP clusters (e.g., kind) keep working.
+const cookieSecure = parseBooleanEnv(process.env.COOKIE_SECURE, isProd);
+const cookieSameSite = cookieSecure ? "none" : "lax";
+const baseCookieOptions = {
+  httpOnly: true,
+  secure: cookieSecure,
+  sameSite: cookieSameSite,
+  path: "/",
+};
+
 /**
  * Strictly normalize role.
  * Only "student" or "tutor" are valid.
@@ -247,11 +265,8 @@ router.post("/login", async (req, res) => {
 
     // Single canonical cookie name "token" (still read authToken in /me for compatibility)
     res.cookie("token", token, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: isProd ? "none" : "lax",
+      ...baseCookieOptions,
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-      path: "/",
     });
 
     const responseData = {
@@ -328,18 +343,8 @@ router.get("/me", async (req, res) => {
 // -----------------------------
 router.post("/logout", (req, res) => {
   // Clear both cookie names for backward compatibility
-  res.clearCookie("token", {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? "none" : "lax",
-    path: "/",
-  });
-  res.clearCookie("authToken", {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: isProd ? "none" : "lax",
-    path: "/",
-  });
+  res.clearCookie("token", baseCookieOptions);
+  res.clearCookie("authToken", baseCookieOptions);
 
   return res.status(204).send();
 });
