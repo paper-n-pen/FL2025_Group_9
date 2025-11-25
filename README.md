@@ -78,7 +78,7 @@ If you wish to run the entire system in a local Kind (Kubernetes in Docker) clus
    Install Kind and kubectl, then create a cluster:
 
    ```bash
-   kind create cluster --name microtutor
+   kind create cluster --name onlinetutor
    ```
 
 2. **Build Container Images**
@@ -86,15 +86,15 @@ If you wish to run the entire system in a local Kind (Kubernetes in Docker) clus
    Build the backend and frontend images in your local Docker:
 
    ```bash
-   docker build -t microtutor-backend:latest ./backend
-   docker build -t microtutor-frontend:latest ./my-react-app
+   docker build -t onlinetutor-backend:latest ./backend
+   docker build -t onlinetutor-frontend:latest ./my-react-app
    ```
 
 3. **Load Images into Kind**
 
    ```bash
-   kind load docker-image microtutor-backend:latest --name microtutor
-   kind load docker-image microtutor-frontend:latest --name microtutor
+   kind load docker-image onlinetutor-backend:latest --name onlinetutor
+   kind load docker-image onlinetutor-frontend:latest --name onlinetutor
    ```
 
 4. **Deploy to Kubernetes**
@@ -108,13 +108,13 @@ If you wish to run the entire system in a local Kind (Kubernetes in Docker) clus
 5. **Wait for Pods to be Ready and Verify**
 
    ```bash
-   kubectl -n microtutor get pods
+   kubectl -n onlinetutor get pods
    ```
 
    Wait until all pods are Running, then execute:
 
    ```bash
-   kubectl logs -n microtutor -f <ollama-pod-name>
+   kubectl logs -n onlinetutor -f <ollama-pod-name>
    ```
 
    Confirm that the model pull is complete (look for the "Model pull complete." log).
@@ -124,7 +124,7 @@ If you wish to run the entire system in a local Kind (Kubernetes in Docker) clus
    - Using port forwarding:
 
      ```bash
-     kubectl -n microtutor port-forward service/frontend 8080:80
+     kubectl -n onlinetutor port-forward service/frontend 8080:80
      ```
 
    Open your browser and navigate to `http://localhost:8080`.
