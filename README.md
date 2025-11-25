@@ -5,9 +5,9 @@ Name your repository using the following format:
 (Example: FL2025_Group_9)
 
 ## Team Members
+- **Mehak Sharma**: mehak@wustl.edu; mehaksharma30
 - **Sangwon Bae**: b.sangwon@wustl.edu; paper-n-pen
 - **Yikang Wang**: w.yikang@wustl.edu; wangyk55
-- **\<Member Name\>**: \<Email Address\>; \<Github ID\>
 
 ## TA
 Yiren Kang
