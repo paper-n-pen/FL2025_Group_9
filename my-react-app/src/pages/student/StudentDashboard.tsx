@@ -52,6 +52,7 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(false);
   const [studentUser, setStudentUser] = useState<any>(null);
   const [acceptedTutors, setAcceptedTutors] = useState<any[]>([]);
+  const [queriesWithTutors, setQueriesWithTutors] = useState<any[]>([]);
   const [snacks, setSnacks] = useState<Snack[]>([]);
 
   const pushSnack = (
@@ -155,12 +156,29 @@ export default function StudentDashboard() {
       if (!studentUser?.id) return;
       const data = await api.get(apiPath(`/queries/student/${studentUser.id}/responses`));
       const list = Array.isArray(data) ? data : [];
-      const active = list.filter((item: any) => {
-        const status = item?.status?.toLowerCase?.() || "";
-        const sessionStatus = item?.sessionStatus?.toLowerCase?.() || "";
-        return !(status === "completed" || sessionStatus === "ended");
+      
+      // Keep queries grouped with their tutors (for better UI)
+      setQueriesWithTutors(list);
+      
+      // Also maintain flattened list for backward compatibility
+      const allTutors: any[] = [];
+      list.forEach((query: any) => {
+        if (query.tutors && Array.isArray(query.tutors)) {
+          // Filter out rejected tutors from the flat list
+          const pendingTutors = query.tutors.filter((t: any) => t.acceptanceStatus !== 'REJECTED');
+          pendingTutors.forEach((tutor: any) => {
+            allTutors.push({
+              ...tutor,
+              queryId: query.queryId,
+              subject: query.subject,
+              subtopic: query.subtopic,
+              query: query.query,
+              studentSelectedTutorId: query.studentSelectedTutorId
+            });
+          });
+        }
       });
-      setAcceptedTutors(active);
+      setAcceptedTutors(allTutors);
     } catch (error) {
       console.error("Error fetching tutor responses:", error);
     }
@@ -170,16 +188,30 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (studentUser?.id) socket.emit("join-student-room", studentUser.id);
 
-    const onAccepted = (data: any) => {
+    const onTutorAccepted = (data: any) => {
       pushSnack(`${data.tutorName} accepted your query!`, "success");
       fetchTutorResponses();
     };
 
-    socket.on("tutor-accepted", onAccepted);
+    const onTutorConfirmed = (data: any) => {
+      pushSnack(`${data.tutorName} has been confirmed. Session ready to start!`, "success");
+      fetchTutorResponses();
+    };
+
+    const onSessionReady = (data: any) => {
+      pushSnack("Tutor has started the session! You can now enter.", "success");
+      fetchTutorResponses();
+    };
+
+    socket.on("tutor-accepted-query", onTutorAccepted);
+    socket.on("tutor-confirmed", onTutorConfirmed);
+    socket.on("session-ready", onSessionReady);
 
     return () => {
       if (studentUser?.id) socket.emit("leave-student-room", studentUser.id);
-      socket.off("tutor-accepted", onAccepted);
+      socket.off("tutor-accepted-query", onTutorAccepted);
+      socket.off("tutor-confirmed", onTutorConfirmed);
+      socket.off("session-ready", onSessionReady);
     };
   }, [fetchTutorResponses, studentUser?.id]);
 
@@ -232,6 +264,29 @@ export default function StudentDashboard() {
       pushSnack("Failed to post query. Please try again.", "error");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 🎯 Select a tutor
+  const handleSelectTutor = async (queryId: string, tutorId: number, tutorName: string) => {
+    try {
+      if (!studentUser?.id) {
+        pushSnack("Please log in again", "error");
+        return;
+      }
+      const response = await api.post(apiPath("/queries/student/select-tutor"), {
+        queryId,
+        tutorId: tutorId.toString(),
+        studentId: studentUser.id.toString(),
+      });
+      if (response?.message === "Tutor selected successfully") {
+        pushSnack(`You selected ${tutorName}! Tutor can now start the session.`, "success");
+        fetchTutorResponses(); // Refresh the list
+      }
+    } catch (error: any) {
+      console.error("Error selecting tutor:", error);
+      const errorMsg = error instanceof Error ? error.message : "Failed to select tutor. Please try again.";
+      pushSnack(errorMsg, "error");
     }
   };
 
@@ -474,66 +529,148 @@ export default function StudentDashboard() {
                   </Typography>
                 </Box>
               ) : (
-                <Stack spacing={2}>
-                  {acceptedTutors.map((tutor: any, idx: number) => {
-                    const canEnter = !!tutor.sessionId && tutor.sessionStatus !== "ended";
-                    const hasRating =
-                      typeof tutor.tutorAverageRating === "number" &&
-                      !Number.isNaN(tutor.tutorAverageRating);
-                    const ratingText = hasRating
-                      ? `${tutor.tutorAverageRating.toFixed?.(1) ?? tutor.tutorAverageRating}/5 (${tutor.tutorRatingsCount || 0} reviews)`
-                      : "No ratings yet";
+                <Stack spacing={3}>
+                  {queriesWithTutors.map((queryItem: any) => {
+                    // Filter out rejected tutors
+                    const validTutors = (queryItem.tutors || []).filter((t: any) => t.acceptanceStatus !== 'REJECTED');
+                    if (validTutors.length === 0) return null;
+                    
+                    const isAssigned = queryItem.status === 'ASSIGNED' || queryItem.studentSelectedTutorId;
+                    
                     return (
                       <Card
-                        key={tutor.queryId || idx}
+                        key={queryItem.queryId}
                         variant="outlined"
                         sx={{
                           borderRadius: 2,
-                          backgroundColor: "rgba(16, 185, 129, 0.15)",
-                          border: "1px solid rgba(16, 185, 129, 0.3)",
+                          backgroundColor: isAssigned 
+                            ? "rgba(16, 185, 129, 0.1)" 
+                            : "rgba(79, 70, 229, 0.05)",
+                          border: isAssigned
+                            ? "2px solid rgba(16, 185, 129, 0.3)"
+                            : "1px solid rgba(79, 70, 229, 0.2)",
                         }}
                       >
                         <CardContent>
-                        <Typography
-                          variant="h6"
-                          color="primary"
-                          sx={{ cursor: "pointer", textDecoration: "underline" }}
-                          onClick={() => navigate(`/tutor/${tutor.tutorId}`)}
-                        >
-                          {tutor.tutorName}
-                        </Typography>
-                          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                            Rate: {tutor.rate ? `$${tutor.rate}/10min` : "N/A"}
+                          <Typography variant="h6" sx={{ mb: 1 }}>
+                            {queryItem.subject} • {queryItem.subtopic}
                           </Typography>
-                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                            Rating: {ratingText}
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontStyle: "italic" }}>
+                            "{queryItem.query}"
                           </Typography>
-                          <Button
-                            variant="contained"
-                            disabled={!canEnter}
-                            onClick={() => handleStartSession(tutor)}
-                            sx={{ 
-                              background: canEnter 
-                                ? "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)"
-                                : "rgba(79, 70, 229, 0.3)",
-                              borderRadius: "16px",
-                              px: 3,
-                              py: 1.5,
-                              minWidth: "180px",
-                              textTransform: "none",
-                              fontWeight: 600,
-                              transition: "transform 0.2s ease, box-shadow 0.2s ease",
-                              "&:hover": {
-                                transform: canEnter ? "scale(1.05)" : "none",
-                                boxShadow: canEnter ? "0 4px 12px rgba(79, 70, 229, 0.4)" : "none",
-                                background: canEnter 
-                                  ? "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)"
-                                  : "rgba(79, 70, 229, 0.3)",
-                              },
-                            }}
-                          >
-                            {canEnter ? "Enter Session" : "Waiting for Tutor to Start..."}
-                          </Button>
+                          {isAssigned && (
+                            <Chip 
+                              label="Tutor Selected" 
+                              color="success" 
+                              size="small" 
+                              sx={{ mb: 2 }}
+                            />
+                          )}
+                          <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600 }}>
+                            {validTutors.length} tutor{validTutors.length !== 1 ? 's' : ''} accepted:
+                          </Typography>
+                          <Stack spacing={1.5}>
+                            {validTutors.map((tutor: any, idx: number) => {
+                              const isSelected = tutor.acceptanceStatus === 'SELECTED' || queryItem.studentSelectedTutorId === tutor.tutorId?.toString();
+                              const canEnter = !!tutor.sessionId && tutor.sessionStatus !== "ended";
+                              const hasRating =
+                                typeof tutor.tutorAverageRating === "number" &&
+                                !Number.isNaN(tutor.tutorAverageRating);
+                              const ratingText = hasRating
+                                ? `${tutor.tutorAverageRating.toFixed?.(1) ?? tutor.tutorAverageRating}/5 (${tutor.tutorRatingsCount || 0} reviews)`
+                                : "No ratings yet";
+                              
+                              return (
+                                <Box
+                                  key={`${queryItem.queryId}-${tutor.tutorId}-${idx}`}
+                                  sx={{
+                                    p: 1.5,
+                                    borderRadius: 1,
+                                    backgroundColor: isSelected 
+                                      ? "rgba(16, 185, 129, 0.15)" 
+                                      : "rgba(79, 70, 229, 0.08)",
+                                    border: isSelected
+                                      ? "1px solid rgba(16, 185, 129, 0.3)"
+                                      : "1px solid rgba(79, 70, 229, 0.2)",
+                                  }}
+                                >
+                                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
+                                    <Box>
+                                      <Typography
+                                        variant="subtitle1"
+                                        color="primary"
+                                        sx={{ cursor: "pointer", textDecoration: "underline", fontWeight: 600 }}
+                                        onClick={() => navigate(`/tutor/${tutor.tutorId}`)}
+                                      >
+                                        {tutor.tutorName}
+                                      </Typography>
+                                      {isSelected && (
+                                        <Chip 
+                                          label="Selected" 
+                                          color="success" 
+                                          size="small" 
+                                          sx={{ ml: 1 }}
+                                        />
+                                      )}
+                                    </Box>
+                                  </Box>
+                                  <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                                    <strong>Rate:</strong> {tutor.rate ? `$${tutor.rate}/10min` : "N/A"} • <strong>Rating:</strong> {ratingText}
+                                  </Typography>
+                                  {tutor.education && (
+                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                                      <strong>Education:</strong> {tutor.education}
+                                    </Typography>
+                                  )}
+                                  {tutor.bio && (
+                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontStyle: "italic", fontSize: "0.85rem" }}>
+                                      {tutor.bio}
+                                    </Typography>
+                                  )}
+                                  {!isSelected ? (
+                                    <Button
+                                      variant="contained"
+                                      size="small"
+                                      onClick={() => handleSelectTutor(queryItem.queryId, tutor.tutorId, tutor.tutorName)}
+                                      sx={{ 
+                                        background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                                        borderRadius: "12px",
+                                        px: 2,
+                                        py: 0.75,
+                                        textTransform: "none",
+                                        fontWeight: 600,
+                                        fontSize: "0.875rem",
+                                        mt: 1,
+                                      }}
+                                    >
+                                      Select This Tutor
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      variant="contained"
+                                      size="small"
+                                      disabled={!canEnter}
+                                      onClick={() => handleStartSession(tutor)}
+                                      sx={{ 
+                                        background: canEnter 
+                                          ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+                                          : "rgba(16, 185, 129, 0.3)",
+                                        borderRadius: "12px",
+                                        px: 2,
+                                        py: 0.75,
+                                        textTransform: "none",
+                                        fontWeight: 600,
+                                        fontSize: "0.875rem",
+                                        mt: 1,
+                                      }}
+                                    >
+                                      {canEnter ? "Enter Session" : "Waiting for Tutor to Start..."}
+                                    </Button>
+                                  )}
+                                </Box>
+                              );
+                            })}
+                          </Stack>
                         </CardContent>
                       </Card>
                     );

@@ -124,10 +124,15 @@ router.get('/tutor/:tutorId', async (req, res) => {
              q.accepted_tutor_id, s.username AS student_name
         FROM queries q
         JOIN users s ON s.id = q.student_id
-       WHERE q.status = 'pending'
+       WHERE q.status IN ('pending', 'OPEN', 'PENDING_STUDENT_SELECTION')
+         AND q.accepted_tutor_id IS NULL
          AND NOT EXISTS (
                SELECT 1 FROM query_declines d
                 WHERE d.query_id = q.id AND d.tutor_id = $1
+         )
+         AND NOT EXISTS (
+               SELECT 1 FROM query_acceptances qa
+                WHERE qa.query_id = q.id AND qa.tutor_id = $1 AND qa.status IN ('REJECTED', 'PENDING', 'SELECTED')
          )
     `;
 
@@ -196,6 +201,9 @@ router.get('/tutor/:tutorId/accepted-queries', async (req, res) => {
         ? Number(tutorRow.rate_per_10_min)
         : null;
 
+    // Show queries where this tutor has accepted (PENDING or SELECTED status)
+    // PENDING = waiting for student to choose
+    // SELECTED = student chose this tutor, can start session
     const queriesResult = await pool.query(
       `SELECT q.id,
               q.subject,
@@ -205,11 +213,14 @@ router.get('/tutor/:tutorId/accepted-queries', async (req, res) => {
               q.status,
               q.created_at,
               q.updated_at,
+              q.accepted_tutor_id,
               s.username AS student_name,
+              qa.status AS acceptance_status,
               latest_session.id AS session_id,
               latest_session.status AS session_status
          FROM queries q
          JOIN users s ON s.id = q.student_id
+         JOIN query_acceptances qa ON qa.query_id = q.id AND qa.tutor_id = $1
     LEFT JOIN LATERAL (
            SELECT id, status
              FROM sessions
@@ -217,19 +228,22 @@ router.get('/tutor/:tutorId/accepted-queries', async (req, res) => {
          ORDER BY start_time DESC
             LIMIT 1
     ) latest_session ON TRUE
-        WHERE q.accepted_tutor_id = $1
-          AND q.status IN ('accepted', 'in-session')
+        WHERE qa.status IN ('PENDING', 'SELECTED')
      ORDER BY COALESCE(q.updated_at, q.created_at) DESC`,
       [tutorId]
     );
 
-    const acceptedQueries = queriesResult.rows.map((row) =>
-      mapQueryRow(row, {
+    const acceptedQueries = queriesResult.rows.map((row) => {
+      const mapped = mapQueryRow(row, {
         sessionId: row.session_id ? row.session_id.toString() : null,
         sessionStatus: row.session_status || null,
         rate
-      })
-    );
+      });
+      // Add acceptance status and accepted tutor ID to the response
+      mapped.acceptanceStatus = row.acceptance_status || 'PENDING';
+      mapped.acceptedTutorId = row.accepted_tutor_id ? row.accepted_tutor_id.toString() : null;
+      return mapped;
+    });
 
     res.json(acceptedQueries);
   } catch (error) {
@@ -270,9 +284,11 @@ router.post('/accept', async (req, res) => {
     }
 
     const queryRow = queryResult.rows[0];
-    if (queryRow.status !== 'pending') {
+    // Only allow acceptances for OPEN or PENDING_STUDENT_SELECTION queries
+    // Reject if already ASSIGNED, CLOSED, or COMPLETED
+    if (!['pending', 'OPEN', 'PENDING_STUDENT_SELECTION'].includes(queryRow.status)) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ message: 'Query is no longer available' });
+      return res.status(400).json({ message: 'Query is no longer available for acceptance' });
     }
 
     const tutorResult = await client.query(
@@ -290,14 +306,44 @@ router.post('/accept', async (req, res) => {
 
     const tutorRow = tutorResult.rows[0];
 
+    // Check if acceptance already exists
+    const existingAcceptance = await client.query(
+      `SELECT status FROM query_acceptances 
+       WHERE query_id = $1 AND tutor_id = $2`,
+      [queryIdNumber, tutorIdNumber]
+    );
+
+    if (existingAcceptance.rows.length > 0) {
+      const currentStatus = existingAcceptance.rows[0].status;
+      // If already PENDING or SELECTED, that's fine - tutor already accepted
+      if (currentStatus === 'PENDING' || currentStatus === 'SELECTED') {
+        // Already accepted, nothing to do
+      } else if (currentStatus === 'REJECTED') {
+        // Allow re-acceptance if previously rejected
+        await client.query(
+          `UPDATE query_acceptances 
+           SET status = 'PENDING', accepted_at = CURRENT_TIMESTAMP
+           WHERE query_id = $1 AND tutor_id = $2`,
+          [queryIdNumber, tutorIdNumber]
+        );
+      }
+    } else {
+      // Insert new acceptance
+      await client.query(
+        `INSERT INTO query_acceptances (query_id, tutor_id, status)
+         VALUES ($1, $2, 'PENDING')`,
+        [queryIdNumber, tutorIdNumber]
+      );
+    }
+
+    // Update query status: if OPEN/pending, move to PENDING_STUDENT_SELECTION
+    const newStatus = queryRow.status === 'pending' ? 'PENDING_STUDENT_SELECTION' : queryRow.status;
     await client.query(
       `UPDATE queries
-          SET status = 'accepted',
-              accepted_tutor_id = $2,
-              accepted_at = CURRENT_TIMESTAMP,
-              updated_at  = CURRENT_TIMESTAMP
+          SET status = $2,
+              updated_at = CURRENT_TIMESTAMP
         WHERE id = $1`,
-      [queryIdNumber, tutorIdNumber]
+      [queryIdNumber, newStatus]
     );
 
     await client.query(
@@ -311,15 +357,18 @@ router.post('/accept', async (req, res) => {
     console.log('Tutor accepted query:', { queryId: queryIdNumber, tutorId: tutorIdNumber });
 
     if (io) {
-      io.to(`student-${queryRow.student_id}`).emit('tutor-accepted', {
+      // Notify student that a tutor has accepted
+      io.to(`student-${queryRow.student_id}`).emit('tutor-accepted-query', {
         queryId: queryIdNumber.toString(),
+        tutorId: tutorIdNumber.toString(),
         tutorName: tutorRow.username,
         rate:
           tutorRow.rate_per_10_min !== null && tutorRow.rate_per_10_min !== undefined
             ? Number(tutorRow.rate_per_10_min)
             : null,
-        bio: tutorRow.bio,
-        education: tutorRow.education
+        bio: tutorRow.bio || '',
+        education: tutorRow.education || '',
+        message: `${tutorRow.username} has accepted your query.`
       });
     }
 
@@ -458,6 +507,24 @@ router.post('/session', async (req, res) => {
       tutorId: tutorIdNumber,
       studentId: studentIdNumber
     });
+
+    // Emit real-time events to notify both tutor and student
+    if (io) {
+      // Notify tutor that session is ready
+      io.to(`tutor-${tutorIdNumber}`).emit('session-created', {
+        queryId: queryIdNumber.toString(),
+        sessionId: sessionResult.rows[0].id.toString(),
+        message: 'Session created successfully. You can now enter the session.'
+      });
+
+      // Notify student that session is ready
+      io.to(`student-${studentIdNumber}`).emit('session-ready', {
+        queryId: queryIdNumber.toString(),
+        sessionId: sessionResult.rows[0].id.toString(),
+        tutorId: tutorIdNumber.toString(),
+        message: 'Tutor has started the session. You can now enter.'
+      });
+    }
 
     res.status(201).json({
       message: 'Session created successfully',
@@ -702,12 +769,14 @@ router.get('/student/:studentId/responses', async (req, res) => {
   }
 
   try {
+    // Get all tutors who accepted queries for this student
     const result = await pool.query(
-      `SELECT q.id,
+      `SELECT q.id AS query_id,
               q.subject,
               q.subtopic,
               q.query_text,
               q.status,
+              q.accepted_tutor_id AS student_selected_tutor_id,
               q.created_at,
               q.updated_at,
               t.id AS tutor_id,
@@ -715,12 +784,15 @@ router.get('/student/:studentId/responses', async (req, res) => {
               t.bio AS tutor_bio,
               t.education AS tutor_education,
               t.rate_per_10_min,
+              qa.accepted_at AS tutor_accepted_at,
+              qa.status AS acceptance_status,
               s.id AS session_id,
               s.status AS session_status,
               rs.avg_rating AS tutor_avg_rating,
               rs.ratings_count AS tutor_ratings_count
          FROM queries q
-         JOIN users t ON t.id = q.accepted_tutor_id
+         JOIN query_acceptances qa ON qa.query_id = q.id
+         JOIN users t ON t.id = qa.tutor_id
     LEFT JOIN LATERAL (
            SELECT id, status
              FROM sessions
@@ -732,44 +804,217 @@ router.get('/student/:studentId/responses', async (req, res) => {
            SELECT AVG(rating) AS avg_rating,
                   COUNT(rating) AS ratings_count
              FROM sessions
-            WHERE tutor_id = q.accepted_tutor_id
+            WHERE tutor_id = qa.tutor_id
               AND rating IS NOT NULL
     ) rs ON TRUE
         WHERE q.student_id = $1
-          AND q.accepted_tutor_id IS NOT NULL
-     ORDER BY COALESCE(q.updated_at, q.created_at) DESC`,
+     ORDER BY q.id DESC, qa.accepted_at DESC`,
       [studentId]
     );
 
-    const responses = result.rows.map((row) => ({
-      queryId: row.id.toString(),
-      subject: row.subject,
-      subtopic: row.subtopic,
-      query: row.query_text,
-      status: row.status,
-      tutorId: row.tutor_id,
-      tutorName: row.tutor_name,
-      rate:
-        row.rate_per_10_min !== null && row.rate_per_10_min !== undefined
-          ? Number(row.rate_per_10_min)
-          : null,
-      bio: row.tutor_bio,
-      education: row.tutor_education,
-      sessionId: row.session_id ? row.session_id.toString() : null,
-      sessionStatus: row.session_status || null,
-      tutorAverageRating:
-        row.tutor_avg_rating !== null && row.tutor_avg_rating !== undefined
-          ? Number(row.tutor_avg_rating)
-          : null,
-      tutorRatingsCount: row.tutor_ratings_count ? Number(row.tutor_ratings_count) : 0,
-      updatedAt: row.updated_at,
-      createdAt: row.created_at
-    }));
+    // Group by query_id to show all tutors per query
+    const responsesByQuery = {};
+    result.rows.forEach((row) => {
+      const queryId = row.query_id.toString();
+      if (!responsesByQuery[queryId]) {
+        responsesByQuery[queryId] = {
+          queryId,
+          subject: row.subject,
+          subtopic: row.subtopic,
+          query: row.query_text,
+          status: row.status,
+          studentSelectedTutorId: row.student_selected_tutor_id ? row.student_selected_tutor_id.toString() : null,
+          tutors: [],
+          createdAt: row.created_at,
+          updatedAt: row.updated_at
+        };
+      }
+      
+      responsesByQuery[queryId].tutors.push({
+        tutorId: row.tutor_id,
+        tutorName: row.tutor_name,
+        rate:
+          row.rate_per_10_min !== null && row.rate_per_10_min !== undefined
+            ? Number(row.rate_per_10_min)
+            : null,
+        bio: row.tutor_bio || '',
+        education: row.tutor_education || '',
+        tutorAcceptedAt: row.tutor_accepted_at,
+        sessionId: row.session_id ? row.session_id.toString() : null,
+        sessionStatus: row.session_status || null,
+        tutorAverageRating:
+          row.tutor_avg_rating !== null && row.tutor_avg_rating !== undefined
+            ? Number(row.tutor_avg_rating)
+            : null,
+        tutorRatingsCount: row.tutor_ratings_count ? Number(row.tutor_ratings_count) : 0,
+        acceptanceStatus: row.acceptance_status || 'PENDING',
+        isSelected: row.acceptance_status === 'SELECTED' || row.student_selected_tutor_id === row.tutor_id
+      });
+    });
+
+    // Convert to array format
+    const responses = Object.values(responsesByQuery);
 
     res.json(responses);
   } catch (error) {
     console.error('Error fetching student responses:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ------------------------
+// POST /queries/student/select-tutor
+// ------------------------
+router.post('/student/select-tutor', async (req, res) => {
+  const { queryId, tutorId, studentId } = req.body;
+
+  const queryIdNumber = Number(queryId);
+  const tutorIdNumber = Number(tutorId);
+  const studentIdNumber = Number(studentId);
+
+  if (!Number.isInteger(queryIdNumber) || !Number.isInteger(tutorIdNumber) || !Number.isInteger(studentIdNumber)) {
+    return res.status(400).json({ message: 'Invalid queryId, tutorId, or studentId' });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Verify query belongs to student
+    const queryResult = await client.query(
+      `SELECT id, student_id, status
+         FROM queries
+        WHERE id = $1 AND student_id = $2
+        FOR UPDATE`,
+      [queryIdNumber, studentIdNumber]
+    );
+
+    if (queryResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Query not found or does not belong to student' });
+    }
+
+    const queryRow = queryResult.rows[0];
+
+    // Verify query is in correct state for selection
+    if (!['pending', 'OPEN', 'PENDING_STUDENT_SELECTION'].includes(queryRow.status)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Query is not in a state that allows tutor selection' });
+    }
+
+    // Verify tutor accepted this query with PENDING status
+    const acceptanceResult = await client.query(
+      `SELECT tutor_id, status FROM query_acceptances
+        WHERE query_id = $1 AND tutor_id = $2 AND status = 'PENDING'`,
+      [queryIdNumber, tutorIdNumber]
+    );
+
+    if (acceptanceResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ message: 'Tutor has not accepted this query or is not available for selection' });
+    }
+
+    // Get tutor info
+    const tutorResult = await client.query(
+      `SELECT id, username, bio, education, rate_per_10_min
+         FROM users
+        WHERE id = $1 AND user_type = 'tutor'`,
+      [tutorIdNumber]
+    );
+
+    if (tutorResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ message: 'Tutor not found' });
+    }
+
+    const tutorRow = tutorResult.rows[0];
+
+    // Update query with selected tutor - set status to ASSIGNED
+    await client.query(
+      `UPDATE queries
+          SET accepted_tutor_id = $2,
+              status = 'ASSIGNED',
+              accepted_at = CURRENT_TIMESTAMP,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1`,
+      [queryIdNumber, tutorIdNumber]
+    );
+
+    // Mark selected tutor's acceptance as SELECTED
+    await client.query(
+      `UPDATE query_acceptances
+          SET status = 'SELECTED'
+        WHERE query_id = $1 AND tutor_id = $2`,
+      [queryIdNumber, tutorIdNumber]
+    );
+
+    // Reject all other tutor acceptances for this query
+    await client.query(
+      `UPDATE query_acceptances
+          SET status = 'REJECTED'
+        WHERE query_id = $1 AND tutor_id != $2 AND status = 'PENDING'`,
+      [queryIdNumber, tutorIdNumber]
+    );
+
+    // Get all rejected tutor IDs for notifications
+    const rejectedTutorsResult = await client.query(
+      `SELECT tutor_id FROM query_acceptances
+        WHERE query_id = $1 AND status = 'REJECTED' AND tutor_id != $2`,
+      [queryIdNumber, tutorIdNumber]
+    );
+    const rejectedTutorIds = rejectedTutorsResult.rows.map(row => row.tutor_id);
+
+    await client.query('COMMIT');
+
+    console.log('Student selected tutor:', { queryId: queryIdNumber, tutorId: tutorIdNumber, studentId: studentIdNumber });
+
+    // Emit real-time events via socket
+    if (io) {
+      // Notify selected tutor - they can now start session
+      io.to(`tutor-${tutorIdNumber}`).emit('query-assigned', {
+        queryId: queryIdNumber.toString(),
+        studentId: studentIdNumber.toString(),
+        message: 'Student has selected you for this query. You can now start the session.',
+        querySubject: queryRow.subject || '',
+        querySubtopic: queryRow.subtopic || ''
+      });
+
+      // Notify rejected tutors - they were not selected
+      rejectedTutorIds.forEach(rejectedTutorId => {
+        io.to(`tutor-${rejectedTutorId}`).emit('query-not-selected', {
+          queryId: queryIdNumber.toString(),
+          message: 'Another tutor was selected for this query.',
+          querySubject: queryRow.subject || '',
+          querySubtopic: queryRow.subtopic || ''
+        });
+      });
+
+      // Notify student - tutor confirmed
+      io.to(`student-${studentIdNumber}`).emit('tutor-confirmed', {
+        queryId: queryIdNumber.toString(),
+        tutorId: tutorIdNumber.toString(),
+        tutorName: tutorRow.username,
+        message: `${tutorRow.username} has been confirmed. Session ready to start.`
+      });
+    }
+
+    res.json({ 
+      message: 'Tutor selected successfully',
+      tutor: {
+        id: tutorRow.id,
+        name: tutorRow.username,
+        rate: tutorRow.rate_per_10_min ? Number(tutorRow.rate_per_10_min) : null,
+        bio: tutorRow.bio,
+        education: tutorRow.education
+      }
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error selecting tutor:', error);
+    res.status(500).json({ message: 'Server error' });
+  } finally {
+    client.release();
   }
 });
 

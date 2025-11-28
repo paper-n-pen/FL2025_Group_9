@@ -25,6 +25,7 @@ import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import DrawIcon from "@mui/icons-material/Draw";
 import CloseIcon from "@mui/icons-material/Close";
 import Whiteboard from "../Whiteboard";
+import VideoCallPanel from "../components/VideoCallPanel";
 import {
   getActiveAuthState,
   markActiveUserType,
@@ -92,6 +93,7 @@ export default function SessionRoom() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
   const [snacks, setSnacks] = useState<Snack[]>([]);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const socket = useMemo(() => getSocket(), []);
@@ -371,42 +373,148 @@ export default function SessionRoom() {
         sx={{
           flex: 1,
           py: 4,
-          display: "grid",
-          gap: 4,
-          gridTemplateColumns: { xs: "1fr", md: "2fr 1fr" },
         }}
       >
-        {/* Whiteboard */}
-        <Paper
-          elevation={5}
-          sx={{ p: 3, borderRadius: 4, display: "flex", flexDirection: "column" }}
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: { xs: "column", lg: "row" },
+            gap: 4,
+            alignItems: { lg: "stretch" },
+          }}
         >
-          <Box display="flex" alignItems="center" gap={1} mb={2}>
-            <DrawIcon color="primary" />
-            <Typography variant="h5" fontWeight="bold">
-              Whiteboard
-            </Typography>
+          {/* Whiteboard - Left side on desktop, top on mobile */}
+          <Box sx={{ width: { xs: "100%", lg: "50%" } }}>
+            <Paper
+              elevation={5}
+              sx={{
+                p: 3,
+                borderRadius: 4,
+                display: "flex",
+                flexDirection: "column",
+                height: "100%",
+              }}
+            >
+              <Box display="flex" alignItems="center" gap={1} mb={2}>
+                <DrawIcon color="primary" />
+                <Typography variant="h5" fontWeight="bold">
+                  Whiteboard
+                </Typography>
+              </Box>
+              <Divider sx={{ mb: 2 }} />
+              <Box flex={1} minHeight={{ xs: 420, lg: 500 }}>
+                <Whiteboard socket={socket} sessionId={sessionId!} />
+              </Box>
+            </Paper>
           </Box>
-          <Divider sx={{ mb: 2 }} />
-          <Box flex={1} minHeight={420}>
-            <Whiteboard socket={socket} sessionId={sessionId!} />
-          </Box>
-        </Paper>
 
-        {/* Chat */}
-        <Paper
-          elevation={5}
-          sx={{ p: 3, borderRadius: 4, display: "flex", flexDirection: "column" }}
+          {/* Video Call - Right side on desktop, bottom on mobile */}
+          <Box sx={{ width: { xs: "100%", lg: "50%" } }}>
+            {sessionId && (
+              <VideoCallPanel socket={socket} sessionId={sessionId} />
+            )}
+          </Box>
+        </Box>
+      </Container>
+
+      {/* Floating Chat Toggle Button */}
+      {!isChatOpen && (
+        <Button
+          onClick={() => setIsChatOpen(true)}
+          variant="contained"
+          sx={{
+            position: "fixed",
+            bottom: 100,
+            right: 24,
+            zIndex: 10000,
+            borderRadius: "28px",
+            px: 3,
+            py: 1.5,
+            background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+            boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+            textTransform: "none",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            transition: "transform 0.2s ease, box-shadow 0.2s ease",
+            "&:hover": {
+              transform: "scale(1.05)",
+              boxShadow: "0 6px 16px rgba(79, 70, 229, 0.5)",
+              background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+            },
+          }}
         >
-          <Box display="flex" alignItems="center" gap={1} mb={2}>
-            <ChatBubbleOutlineIcon color="primary" />
-            <Typography variant="h5" fontWeight="bold">
-              Chat
-            </Typography>
-          </Box>
-          <Divider sx={{ mb: 2 }} />
+          <ChatBubbleOutlineIcon />
+          Session Chat
+        </Button>
+      )}
 
-          <Box flex={1} overflow="auto" mb={2}>
+      {/* Floating Chat Panel */}
+      {isChatOpen && (
+        <Paper
+          elevation={24}
+          sx={{
+            position: "fixed",
+            bottom: 100,
+            right: 24,
+            zIndex: 10001,
+            width: { xs: "calc(100% - 48px)", sm: 400 },
+            maxWidth: 400,
+            maxHeight: "60vh",
+            borderRadius: 3,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            bgcolor: "background.paper",
+            border: "1px solid",
+            borderColor: "divider",
+          }}
+        >
+          {/* Chat Header */}
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              px: 2,
+              py: 1.5,
+              borderBottom: "1px solid",
+              borderColor: "divider",
+              bgcolor: "background.paper",
+            }}
+          >
+            <Box display="flex" alignItems="center" gap={1}>
+              <ChatBubbleOutlineIcon color="primary" />
+              <Typography variant="subtitle1" fontWeight="bold">
+                Session Chat
+              </Typography>
+            </Box>
+            <IconButton
+              size="small"
+              onClick={() => setIsChatOpen(false)}
+              sx={{
+                color: "text.secondary",
+                "&:hover": {
+                  bgcolor: "action.hover",
+                },
+              }}
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
+
+          {/* Messages Area */}
+          <Box
+            sx={{
+              flex: 1,
+              overflow: "auto",
+              p: 2,
+              display: "flex",
+              flexDirection: "column",
+              gap: 1,
+            }}
+          >
             {messages.map((m: Message) => {
               const senderName = user?.username || user?.name;
               const own = senderName ? m.sender === senderName : false;
@@ -419,7 +527,6 @@ export default function SessionRoom() {
                   key={m.id}
                   display="flex"
                   justifyContent={own ? "flex-end" : "flex-start"}
-                  mb={1}
                 >
                   <Box
                     sx={{
@@ -448,7 +555,19 @@ export default function SessionRoom() {
             <div ref={messagesEndRef} />
           </Box>
 
-          <Box component="form" onSubmit={sendMessage} display="flex" gap={1}>
+          {/* Chat Input */}
+          <Box
+            component="form"
+            onSubmit={sendMessage}
+            sx={{
+              p: 2,
+              borderTop: "1px solid",
+              borderColor: "divider",
+              display: "flex",
+              gap: 1,
+              bgcolor: "background.paper",
+            }}
+          >
             <TextField
               fullWidth
               size="small"
@@ -457,6 +576,11 @@ export default function SessionRoom() {
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                 setNewMessage(e.target.value)
               }
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: "20px",
+                },
+              }}
             />
             <Button 
               variant="contained" 
@@ -464,7 +588,7 @@ export default function SessionRoom() {
               sx={{
                 background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
                 borderRadius: "20px",
-                px: 3,
+                px: 2,
                 py: 1,
                 minWidth: "auto",
                 textTransform: "none",
@@ -481,7 +605,7 @@ export default function SessionRoom() {
             </Button>
           </Box>
         </Paper>
-      </Container>
+      )}
 
       <Dialog
         open={confirmOpen}

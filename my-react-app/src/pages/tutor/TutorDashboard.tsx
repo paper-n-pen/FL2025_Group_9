@@ -47,6 +47,20 @@ export default function TutorDashboard() {
   });
   const navigate = useNavigate();
 
+  // ✅ Fetch available queries
+  const fetchQueries = useCallback(async () => {
+    try {
+      if (!tutorUser?.id) return;
+      const response = await api.get(apiPath(`/queries/tutor/${tutorUser.id}`));
+      const filtered = (Array.isArray(response) ? response : []).filter(
+        (item: StudentQuery) => !declinedQueryIdsRef.current.has(item.id)
+      );
+      setQueries(filtered);
+    } catch (error) {
+      console.error("Error fetching queries:", error);
+    }
+  }, [tutorUser?.id]);
+
   // ✅ Fetch accepted queries
   const fetchAcceptedQueries = useCallback(async () => {
     try {
@@ -116,34 +130,50 @@ export default function TutorDashboard() {
 
     const newQueryHandler = (query: any) => {
       console.log("New query received:", query);
+      // Refresh available queries
+      fetchQueries();
+    };
+
+    const queryAssignedHandler = (data: any) => {
+      console.log("Query assigned to me:", data);
+      // Refresh accepted queries to show "Start Session" button
+      fetchAcceptedQueries();
+    };
+
+    const sessionCreatedHandler = (data: any) => {
+      console.log("Session created:", data);
+      // Refresh accepted queries to update session status
+      fetchAcceptedQueries();
+    };
+
+    const queryNotSelectedHandler = (data: any) => {
+      console.log("Query not selected (another tutor chosen):", data);
+      // Remove this query from accepted queries list
+      setAcceptedQueries((prev: StudentQuery[]) =>
+        prev.filter((q: StudentQuery) => q.id !== data.queryId)
+      );
     };
 
     socket.on("new-query", newQueryHandler);
+    socket.on("query-assigned", queryAssignedHandler);
+    socket.on("query-not-selected", queryNotSelectedHandler);
+    socket.on("session-created", sessionCreatedHandler);
 
     return () => {
       if (tutorUser?.id) socket.emit("leave-tutor-room", tutorUser.id);
       socket.off("new-query", newQueryHandler);
+      socket.off("query-assigned", queryAssignedHandler);
+      socket.off("query-not-selected", queryNotSelectedHandler);
+      socket.off("session-created", sessionCreatedHandler);
     };
-  }, [tutorUser?.id]);
+  }, [tutorUser?.id, fetchQueries]);
 
-  // ✅ Fetch available queries
+  // ✅ Fetch available queries (periodic)
   useEffect(() => {
-    const fetchQueries = async () => {
-      try {
-        if (!tutorUser?.id) return;
-        const response = await api.get(apiPath(`/queries/tutor/${tutorUser.id}`));
-        const filtered = (Array.isArray(response) ? response : []).filter(
-          (item: StudentQuery) => !declinedQueryIdsRef.current.has(item.id)
-        );
-        setQueries(filtered);
-      } catch (error) {
-        console.error("Error fetching queries:", error);
-      }
-    };
     fetchQueries();
     const interval = setInterval(fetchQueries, 5000);
     return () => clearInterval(interval);
-  }, [tutorUser?.id]);
+  }, [fetchQueries]);
 
   // ✅ Periodic accepted query refresh
   useEffect(() => {
@@ -164,8 +194,11 @@ export default function TutorDashboard() {
         queryId,
         tutorId: tutorUser.id.toString(),
       });
-      if (response?.message === "Query accepted successfully") {
+      if (response?.message === "Query accepted successfully" || response?.message === "Query already accepted by this tutor") {
         declinedQueryIdsRef.current.delete(queryId);
+        // DON'T remove from available queries - it should stay visible to other tutors
+        // Only remove it from this tutor's view if we want to hide it from "New Queries"
+        // But keep it available for other tutors until student selects
         setQueries((prevQueries: StudentQuery[]) =>
           prevQueries.filter((item) => item.id !== queryId)
         );
@@ -428,51 +461,113 @@ export default function TutorDashboard() {
                   </Box>
                 ) : (
                   <Stack spacing={2}>
-                    {acceptedQueries.map((query: StudentQuery) => (
-                      <Card
-                        key={query.id}
-                        variant="outlined"
-                        sx={{ 
-                          borderRadius: 2, 
-                          backgroundColor: "rgba(16, 185, 129, 0.15)",
-                          border: "1px solid rgba(16, 185, 129, 0.3)",
-                        }}
-                      >
-                        <CardContent>
-                          <Stack spacing={0.5}>
-                            <Typography variant="h6">{query.studentName}</Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              {query.subject} • {query.subtopic}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              {query.query}
-                            </Typography>
-                            <Button
-                              variant="contained"
-                              sx={{ 
-                                mt: 2,
-                                background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
-                                borderRadius: "16px",
-                                px: 3,
-                                py: 1.5,
-                                minWidth: "180px",
-                                textTransform: "none",
-                                fontWeight: 600,
-                                transition: "transform 0.2s ease, box-shadow 0.2s ease",
-                                "&:hover": {
-                                  transform: "scale(1.05)",
-                                  boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
-                                  background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
-                                },
-                              }}
-                              onClick={() => handleStartSession(query)}
-                            >
-                              Start Session
-                            </Button>
-                          </Stack>
-                        </CardContent>
-                      </Card>
-                    ))}
+                    {acceptedQueries.map((query: any) => {
+                      // Check acceptance status from the query object
+                      const acceptanceStatus = (query as any).acceptanceStatus || 'PENDING';
+                      const isSelected = acceptanceStatus === 'SELECTED';
+                      // Allow starting session if selected and query is ASSIGNED (case-insensitive check)
+                      const queryStatusUpper = (query.status || '').toUpperCase();
+                      const canStartSession = isSelected && (
+                        queryStatusUpper === 'ASSIGNED' || 
+                        queryStatusUpper === 'ACCEPTED' || 
+                        queryStatusUpper === 'IN-SESSION' ||
+                        query.acceptedTutorId === tutorUser?.id?.toString()
+                      );
+                      const hasActiveSession = query.sessionId && query.sessionStatus !== 'ended';
+                      
+                      return (
+                        <Card
+                          key={query.id}
+                          variant="outlined"
+                          sx={{ 
+                            borderRadius: 2, 
+                            backgroundColor: isSelected 
+                              ? "rgba(16, 185, 129, 0.15)"
+                              : "rgba(255, 193, 7, 0.15)",
+                            border: isSelected
+                              ? "1px solid rgba(16, 185, 129, 0.3)"
+                              : "1px solid rgba(255, 193, 7, 0.3)",
+                          }}
+                        >
+                          <CardContent>
+                            <Stack spacing={0.5}>
+                              <Typography variant="h6">{query.studentName}</Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                {query.subject} • {query.subtopic}
+                              </Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                {query.query}
+                              </Typography>
+                              {acceptanceStatus === 'PENDING' && (
+                                <Chip 
+                                  label="Waiting for student selection" 
+                                  color="warning" 
+                                  size="small" 
+                                  sx={{ mt: 1, alignSelf: "flex-start" }}
+                                />
+                              )}
+                              {isSelected && (
+                                <Chip 
+                                  label="Student selected you!" 
+                                  color="success" 
+                                  size="small" 
+                                  sx={{ mt: 1, alignSelf: "flex-start" }}
+                                />
+                              )}
+                              {isSelected && canStartSession && !hasActiveSession ? (
+                                <Button
+                                  variant="contained"
+                                  sx={{ 
+                                    mt: 2,
+                                    background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                                    borderRadius: "16px",
+                                    px: 3,
+                                    py: 1.5,
+                                    minWidth: "180px",
+                                    textTransform: "none",
+                                    fontWeight: 600,
+                                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                                    "&:hover": {
+                                      transform: "scale(1.05)",
+                                      boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+                                      background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                                    },
+                                  }}
+                                  onClick={() => handleStartSession(query)}
+                                >
+                                  Start Session
+                                </Button>
+                              ) : hasActiveSession ? (
+                                <Button
+                                  variant="contained"
+                                  disabled
+                                  sx={{ 
+                                    mt: 2,
+                                    background: "rgba(79, 70, 229, 0.3)",
+                                    borderRadius: "16px",
+                                    px: 3,
+                                    py: 1.5,
+                                    minWidth: "180px",
+                                    textTransform: "none",
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  Session Active
+                                </Button>
+                              ) : isSelected ? (
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 2, fontStyle: "italic" }}>
+                                  Ready to start session! Click "Start Session" above.
+                                </Typography>
+                              ) : (
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 2, fontStyle: "italic" }}>
+                                  Waiting for student to select you...
+                                </Typography>
+                              )}
+                            </Stack>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
                   </Stack>
                 )}
               </CardContent>

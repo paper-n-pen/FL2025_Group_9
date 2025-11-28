@@ -1,0 +1,16 @@
+version: "2"
+authtoken: 365ofZczp0che4lmkg0GxgTioPC_2x4rvarrqTtfwQQU3jxC1
+
+tunnels:
+  backend:
+    addr: 3001
+    proto: http
+    inspect: true
+    bind_tls: true
+    
+  frontend:
+    addr: 5173
+    proto: http
+    inspect: true
+    bind_tls: true
+
