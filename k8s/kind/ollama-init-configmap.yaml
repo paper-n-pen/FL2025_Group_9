@@ -12,7 +12,7 @@ data:
         sleep 1
     done
     echo "Ollama server started."
-    MODEL_NAME="llama3"
+    MODEL_NAME="qwen2.5:0.5b"
     if /bin/ollama list | grep -q "$MODEL_NAME"; then
         echo "$MODEL_NAME model already exists. Skipping pull."
     else

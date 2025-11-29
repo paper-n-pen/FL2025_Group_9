@@ -61,11 +61,11 @@ spec:
               subPath: init-ollama.sh
           resources:
             requests:
-              cpu: "2"
-              memory: 6Gi
+              cpu: "10m"
+              memory: "50Mi"
             limits:
-              cpu: "4"
-              memory: 10Gi
+              cpu: "2"
+              memory: "3Gi"
       volumes:
         - name: ollama-data
           persistentVolumeClaim:
