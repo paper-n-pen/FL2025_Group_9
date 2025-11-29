@@ -42,7 +42,11 @@ export const storeAuthState = (
   }
 
   if (userPayload) {
-    localStorage.setItem(keys.user, JSON.stringify(userPayload));
+    const payloadStr = JSON.stringify(userPayload);
+    // Persist to localStorage (shared across tabs)
+    localStorage.setItem(keys.user, payloadStr);
+    // Also persist to sessionStorage (isolated per tab)
+    sessionStorage.setItem(keys.user, payloadStr);
   }
 
   sessionStorage.setItem(ACTIVE_USER_SESSION_KEY, userType);
@@ -54,7 +58,14 @@ export const markActiveUserType = (userType: SupportedUserType) => {
 
 export const getAuthStateForType = (userType: SupportedUserType) => {
   const keys = STORAGE_KEYS[userType];
-  const user = parseUser(localStorage.getItem(keys.user));
+  
+  // Prefer sessionStorage (tab-isolated) over localStorage (shared)
+  let rawUser = sessionStorage.getItem(keys.user);
+  if (!rawUser) {
+    rawUser = localStorage.getItem(keys.user);
+  }
+  
+  const user = parseUser(rawUser);
   const token = localStorage.getItem(keys.token);
 
   return {
@@ -67,13 +78,13 @@ export const getAuthStateForType = (userType: SupportedUserType) => {
 export const getActiveAuthState = () => {
   const sessionType = sessionStorage.getItem(ACTIVE_USER_SESSION_KEY) as SupportedUserType | null;
 
+  // Strict check: if session says we are X, only return X.
+  // Do not fallback to other types to avoid cross-tab contamination.
   if (sessionType && STORAGE_KEYS[sessionType]) {
-    const state = getAuthStateForType(sessionType);
-    if (state.user) {
-      return state;
-    }
+    return getAuthStateForType(sessionType);
   }
 
+  // Only fallback if NO session type is set (e.g. fresh tab/window)
   const studentState = getAuthStateForType('student');
   if (studentState.user) {
     return studentState;

@@ -25,6 +25,7 @@ import {
   markActiveUserType,
   clearAuthState,
   storeAuthState,
+  getActiveAuthState,
 } from "../../utils/authStorage";
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
@@ -50,7 +51,10 @@ export default function StudentDashboard() {
   const [selectedSubtopic, setSelectedSubtopic] = useState<string>("");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [studentUser, setStudentUser] = useState<any>(null);
+  const [studentUser, setStudentUser] = useState<any>(() => {
+    const { user, userType } = getActiveAuthState();
+    return userType === "student" ? user : null;
+  });
   const [acceptedTutors, setAcceptedTutors] = useState<any[]>([]);
   const [snacks, setSnacks] = useState<Snack[]>([]);
 
@@ -133,10 +137,28 @@ export default function StudentDashboard() {
         const data = await api.get(apiPath("/me"));
         const fetchedUser = data?.user;
         if (!cancelled && fetchedUser) {
-          const u = { ...fetchedUser, userType: fetchedUser.role || "student" };
+          // Strict check: ensure we only accept a STUDENT user here.
+          // If the cookie belongs to a Tutor (from another tab), ignore it to prevent state pollution.
+          const role = (fetchedUser.role || fetchedUser.userType || "").toLowerCase();
+          if (role !== "student") {
+            console.warn("StudentDashboard: /me returned non-student user. Ignoring to prevent cross-talk.", role);
+            // Optionally: if we have no local user, we might want to redirect to login or show error.
+            // But if we have a local user, we definitely don't want to overwrite it with a Tutor user.
+            if (!studentUser) {
+               navigate("/student/login", { replace: true });
+            }
+            return;
+          }
+
+          // Strict check: if we already have a local user, ensure the ID matches.
+          if (studentUser && studentUser.id && fetchedUser.id !== studentUser.id) {
+            console.warn("StudentDashboard: /me returned different user ID. Ignoring to prevent cross-talk.", fetchedUser.id, studentUser.id);
+            return;
+          }
+
+          const u = { ...fetchedUser, userType: "student" };
           setStudentUser(u);
           markActiveUserType("student");
-          // ✅ Persist (token can be null; backend sets cookie, that's fine)
           storeAuthState("student", null, u);
         } else if (!cancelled) {
           navigate("/student/login", { replace: true });

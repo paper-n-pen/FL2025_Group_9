@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ollama-init-script
+data:
+  init-ollama.sh: |
+    #!/bin/sh
+    /bin/ollama serve &
+    pid=$!
+    echo "Waiting for Ollama server to start..."
+    while ! /bin/ollama list > /dev/null 2>&1; do
+        sleep 1
+    done
+    echo "Ollama server started."
+    MODEL_NAME="qwen2.5:0.5b"
+    if /bin/ollama list | grep -q "$MODEL_NAME"; then
+        echo "$MODEL_NAME model already exists. Skipping pull."
+    else
+        echo "$MODEL_NAME model not found. Pulling..."
+        /bin/ollama pull "$MODEL_NAME"
+        echo "Model pull complete."
+    fi
+    wait $pid

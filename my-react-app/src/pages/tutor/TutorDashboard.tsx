@@ -73,7 +73,23 @@ export default function TutorDashboard() {
         const u = res?.user;
         const resolvedRole = (u?.userType || u?.role || "").toLowerCase();
 
+        // Strict check: ensure we only accept a TUTOR user here.
+        if (resolvedRole !== "tutor") {
+          console.warn("TutorDashboard: /me returned non-tutor user. Ignoring to prevent cross-talk.", resolvedRole);
+          if (!tutorUser) {
+             navigate("/tutor/login", { replace: true });
+          }
+          return;
+        }
+
         if (resolvedRole === "tutor" && u) {
+          // Strict check: if we already have a local user, ensure the ID matches.
+          // This prevents Tutor A's tab from being hijacked by Tutor B's cookie.
+          if (tutorUser && tutorUser.id && u.id !== tutorUser.id) {
+            console.warn("TutorDashboard: /me returned different user ID. Ignoring to prevent cross-talk.", u.id, tutorUser.id);
+            return;
+          }
+
           const normalized = { ...u, userType: "tutor" };
           if (isMounted) {
             setTutorUser(normalized);
