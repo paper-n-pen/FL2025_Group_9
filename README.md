@@ -8,7 +8,7 @@ Name your repository using the following format:
 
 - **Sangwon Bae**: <b.sangwon@wustl.edu>; paper-n-pen
 - **Yikang Wang**: <w.yikang@wustl.edu>; wangyk55
-- **\<Member Name\>**: \<Email Address\>; \<Github ID\>
+- **Mehak Sharma**: <mehak@wustl.edu>; mehaksharma30
 
 ## TA
 
