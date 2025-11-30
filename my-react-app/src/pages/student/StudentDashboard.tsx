@@ -1,4 +1,6 @@
 // my-react-app/src/pages/student/StudentDashboard.tsx
+// NOTE: This component contains the student "Enter Session" button
+// and is responsible for calling the tokens charge-on-enter endpoint.
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -29,6 +31,7 @@ import {
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
+import axios from "axios";
 const socket = getSocket();
 
 interface Subject {
@@ -290,21 +293,200 @@ export default function StudentDashboard() {
     }
   };
 
-  // 🚀 Enter session (passes user via location.state too)
-  const handleStartSession = (item: any) => {
+  // 🚀 Enter session - charges COINS BEFORE navigating
+  const handleEnterSession = async (sessionId: number | string) => {
+    if (!sessionId) {
+      console.error('[🪙 COINS ENTER ERROR] handleEnterSession called without sessionId');
+      alert('Missing session ID – cannot enter session.');
+      return;
+    }
+
     if (!studentUser?.id) {
       pushSnack("Your session expired. Please login again.", "error");
       navigate("/student/login", { replace: true });
       return;
     }
-    if (!item?.sessionId) {
-      pushSnack("Your tutor hasn't started the session yet.", "info");
+
+      console.log('[🪙 COINS ENTER] Student clicked Enter Session', {
+        sessionId,
+        currentUserId: studentUser.id,
+      });
+
+    try {
+      // 1) Charge COINS on backend BEFORE entering room
+      const res = await axios.post(`/api/queries/session/${sessionId}/charge-on-enter`);
+
+      console.log(
+        '[🪙 COINS ENTER] Backend /charge-on-enter response',
+        res.data
+      );
+
+      if (!res.data || res.data.ok !== true) {
+        console.error(
+          '[🪙 COINS ENTER ERROR] Backend did not return ok=true',
+          res.data
+        );
+        alert(res.data?.message || 'Failed to enter session (coin error)');
       return;
     }
-    navigate(`/session/${item.sessionId}`, {
-      state: { userType: "student", user: studentUser },
-      replace: false,
-    });
+
+      // ✅ STEP 2: Fetch BOTH student and tutor coins in parallel using TWO separate GET endpoints
+      // This ensures both APIs are called at EXACTLY the same time
+      const studentId = res.data.studentId || studentUser.id;
+      const tutorId = res.data.tutorId;
+      
+      if (!tutorId) {
+        console.error('[🪙 COINS SYNC] ❌ No tutorId in response, cannot fetch both coins');
+        alert('Error: Tutor ID not found. Please try again.');
+        return;
+      }
+
+      console.log('[🪙 COINS SYNC] 🚀 Calling BOTH GET endpoints in parallel:', {
+        studentId,
+        tutorId,
+        sessionId,
+      });
+
+      // ✅ CRITICAL: Call BOTH GET endpoints in parallel using Promise.all
+      const studentPath = apiPath(`/queries/session/${sessionId}/user/${studentId}/coins`);
+      const tutorPath = apiPath(`/queries/session/${sessionId}/user/${tutorId}/coins`);
+      
+      const startTime = performance.now();
+      
+      // Create both fetch promises - they start IMMEDIATELY at the same time
+      const fetchOptions = { credentials: 'include' as RequestCredentials, method: 'GET' as const };
+      const [studentResult, tutorResult] = await Promise.all([
+        fetch(studentPath, fetchOptions).then(r => r.json()),
+        fetch(tutorPath, fetchOptions).then(r => r.json()),
+      ]);
+      
+      const endTime = performance.now();
+      console.log('[🪙 COINS SYNC] ✅ Both GET endpoints completed in parallel, time:', endTime - startTime, 'ms');
+      console.log('[🪙 COINS SYNC] Results:', {
+        studentOk: studentResult?.ok,
+        tutorOk: tutorResult?.ok,
+        studentCoins: studentResult?.coins,
+        tutorCoins: tutorResult?.coins,
+      });
+
+      // Update student coins from GET response
+      if (studentResult && studentResult.ok && studentResult.coins !== undefined) {
+        const updatedStudentUser = {
+          ...studentUser,
+          userType: 'student',
+          tokens: studentResult.coins,
+          coins: studentResult.coins,
+        };
+        
+        setStudentUser(updatedStudentUser);
+        storeAuthState('student', null, updatedStudentUser);
+        
+        console.log('[🪙 COINS SYNC] ✅ Student coins updated from GET endpoint:', {
+          studentId,
+          coins: studentResult.coins,
+        });
+      } else {
+        console.warn('[🪙 COINS SYNC] ⚠️ Student coins GET endpoint did not return valid data');
+      }
+
+      // Update tutor coins from GET response
+      if (tutorResult && tutorResult.ok && tutorResult.coins !== undefined) {
+        const tutorData = {
+          id: tutorId,
+          userType: 'tutor',
+          tokens: tutorResult.coins,
+          coins: tutorResult.coins,
+        };
+        
+        // ✅ Use storeAuthState instead of direct localStorage.setItem for consistency
+        // This ensures the data is stored in the same format as the rest of the app
+        storeAuthState('tutor', null, tutorData);
+        
+        console.log('[🪙 COINS SYNC] ✅ Tutor coins updated from GET endpoint:', {
+          tutorId,
+          coins: tutorResult.coins,
+          stored: true,
+        });
+      } else {
+        console.warn('[🪙 COINS SYNC] ⚠️ Tutor coins GET endpoint did not return valid data');
+      }
+
+      markActiveUserType('student');  // ✅ Ensure sessionStorage is set
+      
+      // ✅ CRITICAL: Dispatch event IMMEDIATELY after localStorage updates
+      // localStorage is synchronous, so we can dispatch right away
+      // Dispatch multiple times to ensure it's caught (some browsers/tabs might miss it)
+      const dispatchUpdate = () => {
+        const event = new CustomEvent('token-update', { 
+          detail: { 
+            studentCoins: studentResult?.coins,
+            tutorCoins: tutorResult?.coins,
+            timestamp: Date.now(),
+          } 
+        });
+        window.dispatchEvent(event);
+        console.log('[🪙 COINS SYNC] 📢 Dispatched token-update event:', {
+          studentCoins: studentResult?.coins,
+          tutorCoins: tutorResult?.coins,
+          timestamp: Date.now(),
+        });
+      };
+      
+      // Dispatch immediately
+      dispatchUpdate();
+      
+      // Also dispatch after a tiny delay to catch any race conditions
+      setTimeout(dispatchUpdate, 10);
+      setTimeout(dispatchUpdate, 50);
+      
+      // Ensure both localStorage entries are updated before navigation
+      console.log('[🪙 COINS SYNC] ✅ Both student and tutor coins updated simultaneously');
+
+      // 3) Navigate to the existing session room page with UPDATED user data
+      // Use the student user from state (updated from GET endpoint)
+      const finalStudentUser = {
+        ...studentUser,
+        userType: 'student',
+        tokens: studentResult?.coins !== undefined ? studentResult.coins : studentUser.tokens,
+        coins: studentResult?.coins !== undefined ? studentResult.coins : studentUser.tokens,
+      };
+      
+      navigate(`/session/${sessionId}`, {
+        state: { userType: "student", user: finalStudentUser },
+        replace: false,
+      });
+    } catch (err: any) {
+      console.error('[🪙 COINS ENTER ERROR] Exception in handleEnterSession', err);
+      console.error('[🪙 COINS ENTER ERROR] Error details:', {
+        message: err?.message,
+        response: err?.response?.data,
+        status: err?.response?.status,
+        stack: err?.stack,
+      });
+      
+      // If backend sent 400 with INSUFFICIENT_COINS, show that
+      const status = err?.response?.status;
+      const data = err?.response?.data;
+      
+      if (status === 400) {
+        if (data?.code === 'INSUFFICIENT_TOKENS' || data?.code === 'INSUFFICIENT_COINS') {
+          alert(
+            data?.message ||
+              'You do not have enough coins to enter this session.'
+          );
+        } else if (data?.code === 'SESSION_NOT_FOUND') {
+          alert('Session not found. Please try again.');
+        } else if (data?.message) {
+          alert(data.message);
+        } else {
+          alert('Error entering session. Please try again.');
+        }
+      } else if (err?.message) {
+        alert(`Error: ${err.message}`);
+      } else {
+        alert('Error entering session. Please try again.');
+      }
+    }
   };
 
   const currentSubject = subjects.find((s) => s.name === selectedSubject);
@@ -344,21 +526,6 @@ export default function StudentDashboard() {
             Post your questions and get help from expert tutors
           </Typography>
         </Box>
-
-        <Button
-          variant="outlined"
-          color="error"
-          onClick={handleLogout}
-          sx={{
-            borderRadius: 2,
-            fontWeight: 600,
-            textTransform: "none",
-            px: 3,
-            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-          }}
-        >
-          Logout
-        </Button>
       </Box>
 
       {/* Main Content */}
@@ -650,7 +817,7 @@ export default function StudentDashboard() {
                                       variant="contained"
                                       size="small"
                                       disabled={!canEnter}
-                                      onClick={() => handleStartSession(tutor)}
+                                      onClick={() => handleEnterSession(tutor.sessionId)}
                                       sx={{ 
                                         background: canEnter 
                                           ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"

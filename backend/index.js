@@ -139,6 +139,238 @@ const sessionRoom = (sessionId) => {
   return `session-${trimmed}`;
 };
 
+/* -------------------- SESSION TIMER STORE -------------------- */
+
+const sessionTimers = new Map();
+
+function ensureSessionTimer(sessionId) {
+  if (!sessionId) return null;
+  const normalizedId = String(sessionId).trim();
+  if (!normalizedId) return null;
+
+  if (!sessionTimers.has(normalizedId)) {
+    sessionTimers.set(normalizedId, {
+      sessionId: normalizedId,
+      durationMs: 10 * 60 * 1000, // 10 minutes
+      remainingMs: 10 * 60 * 1000,
+      status: "idle",
+      blockNumber: 1,
+      timerRunning: false,
+      intervalId: null,
+      lastTickTs: null,
+      hasSessionStarted: false,
+      presentSockets: new Set(),
+    });
+  }
+
+  return sessionTimers.get(normalizedId);
+}
+
+/* -------------------- TIMER CONTROL HELPERS -------------------- */
+
+function startOrResumeTimer(sessionId) {
+  const state = ensureSessionTimer(sessionId);
+  if (!state) return;
+
+  // Don't start if session is ended or awaiting extension
+  if (state.status === "ended" || state.status === "awaitingExtension") {
+    return;
+  }
+
+  // Don't start if session hasn't been explicitly started by tutor
+  if (!state.hasSessionStarted) {
+    return;
+  }
+
+  // Don't start if no time remaining
+  if (state.remainingMs <= 0) {
+    return;
+  }
+
+  // Don't start if both student and tutor aren't present
+  if (state.presentSockets.size < 2) {
+    return;
+  }
+
+  // Don't start if already running
+  if (state.timerRunning) {
+    return;
+  }
+
+  // Start the timer
+  state.status = "running";
+  state.timerRunning = true;
+  state.lastTickTs = Date.now();
+
+  console.log(
+    `[TIMER] Starting/Resuming timer for session ${sessionId}, block ${state.blockNumber}, remaining: ${state.remainingMs}ms, presentSockets: ${state.presentSockets.size}`
+  );
+
+  // Emit initial timer update
+  const room = sessionRoom(sessionId);
+  if (room) {
+    io.to(room).emit("session-timer-update", {
+      sessionId,
+      blockNumber: state.blockNumber,
+      remainingMs: state.remainingMs,
+      status: state.status,
+    });
+  }
+
+  state.intervalId = setInterval(() => {
+    // Safety check: if timer is no longer running, clear interval
+    if (!state.timerRunning || state.status === "ended") {
+      if (state.intervalId) {
+        clearInterval(state.intervalId);
+        state.intervalId = null;
+      }
+      return;
+    }
+
+    const now = Date.now();
+    if (!state.lastTickTs) {
+      state.lastTickTs = now;
+      return;
+    }
+
+    const delta = Math.min(now - state.lastTickTs, 5000); // clamp to reasonable max
+    state.remainingMs -= delta;
+    if (state.remainingMs < 0) {
+      state.remainingMs = 0;
+    }
+    state.lastTickTs = now;
+
+    const room = sessionRoom(sessionId);
+    if (room) {
+      io.to(room).emit("session-timer-update", {
+        sessionId,
+        blockNumber: state.blockNumber,
+        remainingMs: state.remainingMs,
+        status: state.status,
+      });
+    }
+
+    // Check if block finished
+    if (state.remainingMs <= 0) {
+      clearInterval(state.intervalId);
+      state.intervalId = null;
+      state.timerRunning = false;
+      state.remainingMs = 0;
+      state.status = "awaitingExtension";
+
+      console.log(
+        `[TIMER] Block ${state.blockNumber} finished for session ${sessionId}`
+      );
+
+      const room = sessionRoom(sessionId);
+      if (room) {
+        io.to(room).emit("session-block-ended", {
+          sessionId,
+          blockNumber: state.blockNumber,
+        });
+      }
+    }
+  }, 1000);
+}
+
+function pauseTimer(sessionId, reason) {
+  const state = ensureSessionTimer(sessionId);
+  if (!state || !state.timerRunning) return;
+
+  // Compute final delta
+  if (state.lastTickTs) {
+    const now = Date.now();
+    const delta = Math.min(now - state.lastTickTs, 5000);
+    state.remainingMs -= delta;
+    if (state.remainingMs < 0) {
+      state.remainingMs = 0;
+    }
+    state.lastTickTs = null;
+  }
+
+  // Clear interval
+  if (state.intervalId) {
+    clearInterval(state.intervalId);
+    state.intervalId = null;
+  }
+
+  state.timerRunning = false;
+
+  if (state.status === "running") {
+    state.status = "paused";
+  }
+
+  console.log(
+    `[TIMER] Paused timer for session ${sessionId}, reason: ${reason}, remaining: ${state.remainingMs}ms`
+  );
+
+  const room = sessionRoom(sessionId);
+  if (room) {
+    io.to(room).emit("session-timer-update", {
+      sessionId,
+      blockNumber: state.blockNumber,
+      remainingMs: state.remainingMs,
+      status: state.status,
+    });
+  }
+}
+
+function startNewBlock(sessionId) {
+  const state = ensureSessionTimer(sessionId);
+  if (!state) return;
+
+  // Reset for new block
+  state.blockNumber += 1;
+  state.remainingMs = state.durationMs;
+  state.status = "idle"; // Set to idle first, startOrResumeTimer will set to running if it starts
+
+  console.log(
+    `[TIMER] Starting new block ${state.blockNumber} for session ${sessionId}`
+  );
+
+  // Try to start the timer (will only start if both are present)
+  startOrResumeTimer(sessionId);
+
+  const room = sessionRoom(sessionId);
+  if (room) {
+    io.to(room).emit("session-extension-accepted", {
+      sessionId,
+      blockNumber: state.blockNumber,
+      remainingMs: state.remainingMs,
+    });
+  }
+}
+
+function hardEndSession(sessionId, reason) {
+  const state = ensureSessionTimer(sessionId);
+  if (!state) return;
+
+  // Pause timer first
+  pauseTimer(sessionId, reason);
+
+  // Mark as ended
+  state.status = "ended";
+  state.timerRunning = false;
+  if (state.intervalId) {
+    clearInterval(state.intervalId);
+    state.intervalId = null;
+  }
+
+  console.log(
+    `[TIMER] Hard ended session ${sessionId}, reason: ${reason}, block: ${state.blockNumber}, remaining: ${state.remainingMs}ms`
+  );
+
+  const room = sessionRoom(sessionId);
+  if (room) {
+    io.to(room).emit("session-ended", {
+      sessionId,
+      reason: reason || "hard-end",
+      blockNumber: state.blockNumber,
+      remainingMs: state.remainingMs,
+    });
+  }
+}
+
 /* -------------------- ATTACH IO TO QUERIES ROUTER -------------------- */
 
 setIO(io);
@@ -195,6 +427,31 @@ io.on("connection", (socket) => {
       `[ROOM] ${room} now has ${numClients} peers: [${socketIds.join(", ")}]`
     );
 
+    // Track presence for timer
+    const state = ensureSessionTimer(sessionId);
+    if (state) {
+      // Clean up any stale socket IDs that are no longer in the room
+      const actualSocketIds = new Set(socketIds);
+      for (const sid of state.presentSockets) {
+        if (!actualSocketIds.has(sid)) {
+          state.presentSockets.delete(sid);
+          console.log(`[TIMER] Cleaned up stale socket ${sid} from session ${sessionId}`);
+        }
+      }
+      
+      state.presentSockets.add(socket.id);
+      socket.data.sessionId = sessionId; // store for disconnect
+      
+      console.log(
+        `[TIMER] Session ${sessionId} now has ${state.presentSockets.size} present sockets, hasStarted: ${state.hasSessionStarted}, status: ${state.status}`
+      );
+    }
+
+    // Try to start/resume timer if conditions are met
+    if (state) {
+      startOrResumeTimer(sessionId);
+    }
+
     // Jab exactly 2 peers ho, dono ko ready bhejo (caller flag ke saath)
     if (numClients === 2) {
       const callerSocketId = socketIds[0];
@@ -218,6 +475,16 @@ io.on("connection", (socket) => {
     if (!room) return;
     socket.leave(room);
     console.log(`User ${socket.id} left session ${room}`);
+
+    // Update presence for timer
+    const state = ensureSessionTimer(sessionId);
+    if (state) {
+      state.presentSockets.delete(socket.id);
+      // Pause timer if less than 2 people in room
+      if (state.timerRunning && state.presentSockets.size < 2) {
+        pauseTimer(sessionId, "peer-left");
+      }
+    }
   });
 
   /* ---- SESSION CHAT ---- */
@@ -337,6 +604,109 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", (reason) => {
     console.log(`Client disconnected: ${socket.id} (${reason})`);
+
+    // Handle timer presence on disconnect
+    if (socket.data.sessionId) {
+      const sessionId = socket.data.sessionId;
+      const state = ensureSessionTimer(sessionId);
+      if (state) {
+        state.presentSockets.delete(socket.id);
+        // Pause timer if less than 2 people in room
+        if (state.timerRunning && state.presentSockets.size < 2) {
+          pauseTimer(sessionId, "disconnect");
+        }
+      }
+    }
+  });
+
+  /* ---- SESSION TIMER CONTROL EVENTS ---- */
+
+  socket.on("session-start", ({ sessionId, role }) => {
+    const state = ensureSessionTimer(sessionId);
+    if (!state) return;
+
+    if (state.status === "ended") {
+      console.log(
+        `[TIMER] Session already ended, ignoring session-start for ${sessionId}`
+      );
+      return;
+    }
+
+    // Mark session as started
+    state.hasSessionStarted = true;
+
+    console.log(
+      `[TIMER] Session-start received for ${sessionId}, role: ${role}`
+    );
+
+    // Try starting immediately if both are present
+    startOrResumeTimer(sessionId);
+
+    // Notify both sides that session is considered started
+    const room = sessionRoom(sessionId);
+    if (room) {
+      io.to(room).emit("session-started", {
+        sessionId,
+        blockNumber: state.blockNumber,
+        remainingMs: state.remainingMs,
+        status: state.status,
+      });
+    }
+  });
+
+  socket.on("session-hard-end", ({ sessionId, reason }) => {
+    console.log(
+      `[TIMER] Hard end requested for ${sessionId}, reason: ${reason}`
+    );
+    hardEndSession(sessionId, reason || "manual-hard-end");
+  });
+
+  socket.on("session-extension-request", ({ sessionId }) => {
+    const state = ensureSessionTimer(sessionId);
+    if (!state) return;
+
+    if (state.status !== "awaitingExtension") {
+      console.log(
+        `[TIMER] Ignoring extension request; invalid state for ${sessionId}, status: ${state.status}`
+      );
+      return;
+    }
+
+    const room = sessionRoom(sessionId);
+    if (!room) return;
+
+    console.log(
+      `[TIMER] Extension request for ${sessionId}, block ${state.blockNumber}`
+    );
+
+    // Broadcast to room; frontend will show prompt only on tutor side
+    io.to(room).emit("session-extension-request", {
+      sessionId,
+      blockNumber: state.blockNumber,
+    });
+  });
+
+  socket.on("session-extension-response", ({ sessionId, accepted }) => {
+    const state = ensureSessionTimer(sessionId);
+    if (!state) return;
+
+    if (state.status !== "awaitingExtension") {
+      console.log(
+        `[TIMER] Ignoring extension response; invalid state for ${sessionId}, status: ${state.status}`
+      );
+      return;
+    }
+
+    const room = sessionRoom(sessionId);
+    if (!room) return;
+
+    if (accepted) {
+      console.log(`[TIMER] Extension ACCEPTED for ${sessionId}`);
+      startNewBlock(sessionId);
+    } else {
+      console.log(`[TIMER] Extension DECLINED for ${sessionId}`);
+      hardEndSession(sessionId, "extension-declined");
+    }
   });
 });
 

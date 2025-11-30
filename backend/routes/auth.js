@@ -128,9 +128,9 @@ router.post("/register", async (req, res) => {
       const result = await pool.query(
         `
         INSERT INTO users
-          (username, email, password_hash, user_type, bio, education, specialties, rate_per_10_min)
-        VALUES ($1, $2, $3, 'tutor', $4, $5, $6::text[], $7)
-        RETURNING id, username AS name, email, user_type AS role
+          (username, email, password_hash, user_type, bio, education, specialties, rate_per_10_min, tokens)
+        VALUES ($1, $2, $3, 'tutor', $4, $5, $6::text[], $7, 0)
+        RETURNING id, username AS name, email, user_type AS role, tokens
         `,
         [
           userName,
@@ -149,6 +149,7 @@ router.post("/register", async (req, res) => {
         role: user.role,
         name: user.name,
         email: user.email,
+        tokens: user.tokens || 0,
       });
     }
 
@@ -157,9 +158,9 @@ router.post("/register", async (req, res) => {
     // ===========================
     const studentResult = await pool.query(
       `
-      INSERT INTO users (username, email, password_hash, user_type)
-      VALUES ($1, $2, $3, 'student')
-      RETURNING id, username AS name, email, user_type AS role
+      INSERT INTO users (username, email, password_hash, user_type, tokens)
+      VALUES ($1, $2, $3, 'student', 100)
+      RETURNING id, username AS name, email, user_type AS role, tokens
       `,
       [userName, normalizedEmail, passwordHash]
     );
@@ -170,10 +171,19 @@ router.post("/register", async (req, res) => {
       role: student.role,
       name: student.name,
       email: student.email,
+      tokens: student.tokens || 100,
     });
   } catch (err) {
     console.error("Registration failed:", err);
-    return res.status(500).json({ error: "Server error during registration." });
+    // Log more details for debugging
+    if (err.code) {
+      console.error("Database error code:", err.code);
+      console.error("Database error detail:", err.detail);
+    }
+    return res.status(500).json({ 
+      error: "Server error during registration.",
+      message: process.env.NODE_ENV === "development" ? err.message : undefined
+    });
   }
 });
 
@@ -254,14 +264,19 @@ router.post("/login", async (req, res) => {
       path: "/",
     });
 
+    const tokens = user.tokens !== null && user.tokens !== undefined 
+      ? Number(user.tokens) 
+      : (user.user_type === 'student' ? 100 : 0);
+    
     const responseData = {
       id: user.id,
       role: user.user_type,
       name: user.username,
       email: user.email,
+      tokens: tokens,
     };
 
-    console.log("Login successful:", user.email, "role:", user.user_type);
+    console.log("Login successful:", { email: user.email, role: user.user_type, userId: user.id, tokens: tokens });
     return res.status(200).json(responseData);
   } catch (err) {
     console.error("Login error:", err);
@@ -280,7 +295,12 @@ router.get("/me", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-secret-change-me");
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-secret-change-me");
+    } catch (jwtError) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
 
     const result = await pool.query(
       `SELECT id,
@@ -290,7 +310,8 @@ router.get("/me", async (req, res) => {
               bio,
               education,
               specialties,
-              rate_per_10_min
+              rate_per_10_min,
+              tokens
          FROM users
         WHERE id = $1`,
       [decoded.id]
@@ -301,9 +322,14 @@ router.get("/me", async (req, res) => {
     }
 
     const row = result.rows[0];
+    
+    const tokens = row.tokens !== null && row.tokens !== undefined ? Number(row.tokens) : 0;
+    
     const user = {
       id: row.id,
-      role: row.user_type,                     // "student" or "tutor"
+      role: row.user_type,
+      user_type: row.user_type, // 🔥 FIX: Add user_type for frontend compatibility
+      userType: row.user_type,  // 🔥 FIX: Add userType for frontend compatibility
       name: row.username,
       username: row.username,
       email: row.email,
@@ -314,7 +340,15 @@ router.get("/me", async (req, res) => {
         row.rate_per_10_min !== null && row.rate_per_10_min !== undefined
           ? Number(row.rate_per_10_min)
           : null,
+      tokens: tokens,
     };
+
+    console.log('[AUTH] GET /me returning user:', {
+      userId: user.id,
+      user_type: user.user_type,
+      tokens: user.tokens,
+      cookieUserId: decoded.id,
+    });
 
     return res.json({ user });
   } catch (err) {

@@ -154,10 +154,37 @@ export default function TutorDashboard() {
       );
     };
 
+    // 🔥 NEW: Listen for coin updates when student enters session
+    const coinsUpdatedHandler = (data: any) => {
+      console.log('[🪙 COINS] 🔔 Coin update event received from backend:', data);
+      
+      if (tutorUser && data.userId === tutorUser.id && data.newBalance !== undefined) {
+        const updatedTutor = {
+          ...tutorUser,
+          tokens: data.newBalance,
+        };
+        setTutorUser(updatedTutor);
+        storeAuthState('tutor', null, updatedTutor);
+        
+        console.log('[🪙 COINS] ✅ Tutor coins updated from socket event:', {
+          userId: updatedTutor.id,
+          newCoins: updatedTutor.tokens,
+          earned: data.earned,
+          reason: data.reason,
+        });
+        
+        // Dispatch event to update TutorNavbar
+        window.dispatchEvent(new CustomEvent('token-update', {
+          detail: { userId: updatedTutor.id, tokens: updatedTutor.tokens }
+        }));
+      }
+    };
+
     socket.on("new-query", newQueryHandler);
     socket.on("query-assigned", queryAssignedHandler);
     socket.on("query-not-selected", queryNotSelectedHandler);
     socket.on("session-created", sessionCreatedHandler);
+    socket.on("coins-updated", coinsUpdatedHandler);  // 🔥 NEW
 
     return () => {
       if (tutorUser?.id) socket.emit("leave-tutor-room", tutorUser.id);
@@ -165,8 +192,9 @@ export default function TutorDashboard() {
       socket.off("query-assigned", queryAssignedHandler);
       socket.off("query-not-selected", queryNotSelectedHandler);
       socket.off("session-created", sessionCreatedHandler);
+      socket.off("coins-updated", coinsUpdatedHandler);  // 🔥 NEW
     };
-  }, [tutorUser?.id, fetchQueries]);
+  }, [tutorUser?.id, tutorUser, fetchQueries]);
 
   // ✅ Fetch available queries (periodic)
   useEffect(() => {
@@ -242,6 +270,26 @@ export default function TutorDashboard() {
     }
   };
 
+  const handleRejoinSession = async (query: StudentQuery) => {
+    if (!tutorUser?.id) {
+      alert("Your session expired. Please login again.");
+      navigate("/tutor/login", { replace: true });
+      return;
+    }
+    if (!query?.sessionId) {
+      alert("Session ID not found. Please try again.");
+      return;
+    }
+    
+    console.log('[🪙 COINS] Tutor rejoining session (no API call, using cached coins)'); 
+    
+    // Navigate with existing tutor data (coins will refresh when clicking "Start Session Timer")
+    navigate(`/session/${query.sessionId}`, {
+      state: { userType: "tutor", user: tutorUser },
+      replace: false,
+    });
+  };
+
   const handleLogout = useCallback(async () => {
     try {
       if (tutorUser?.id) socket.emit("leave-tutor-room", tutorUser.id);
@@ -297,26 +345,6 @@ export default function TutorDashboard() {
               View student questions and manage tutoring sessions
             </Typography>
           </Box>
-
-          <Stack direction="row" spacing={1}>
-            <Button
-              variant="outlined"
-              onClick={() => navigate("/tutor/profile")}
-              sx={{ borderRadius: 2, fontWeight: 600, textTransform: "none", px: 3 }}
-            >
-              Profile
-            </Button>
-
-            <Button
-              variant="outlined"
-              color="error"
-              onClick={handleLogout}
-              sx={{ borderRadius: 2, fontWeight: 600, textTransform: "none", px: 3 }}
-            >
-              Logout
-            </Button>
-          </Stack>
-
         </Stack>
 
         {/* Grid */}
@@ -473,7 +501,8 @@ export default function TutorDashboard() {
                         queryStatusUpper === 'IN-SESSION' ||
                         query.acceptedTutorId === tutorUser?.id?.toString()
                       );
-                      const hasActiveSession = query.sessionId && query.sessionStatus !== 'ended';
+                      // Same condition as student side: can rejoin if session exists and not ended
+                      const canRejoinSession = !!query.sessionId && query.sessionStatus !== 'ended';
                       
                       return (
                         <Card
@@ -514,7 +543,7 @@ export default function TutorDashboard() {
                                   sx={{ mt: 1, alignSelf: "flex-start" }}
                                 />
                               )}
-                              {isSelected && canStartSession && !hasActiveSession ? (
+                              {isSelected && canStartSession && !canRejoinSession ? (
                                 <Button
                                   variant="contained"
                                   sx={{ 
@@ -537,23 +566,33 @@ export default function TutorDashboard() {
                                 >
                                   Start Session
                                 </Button>
-                              ) : hasActiveSession ? (
+                              ) : canRejoinSession ? (
                                 <Button
                                   variant="contained"
-                                  disabled
+                                  onClick={() => handleRejoinSession(query)}
                                   sx={{ 
                                     mt: 2,
-                                    background: "rgba(79, 70, 229, 0.3)",
+                                    background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
                                     borderRadius: "16px",
                                     px: 3,
                                     py: 1.5,
                                     minWidth: "180px",
                                     textTransform: "none",
                                     fontWeight: 600,
+                                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                                    "&:hover": {
+                                      transform: "scale(1.05)",
+                                      boxShadow: "0 4px 12px rgba(16, 185, 129, 0.4)",
+                                      background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                                    },
                                   }}
                                 >
-                                  Session Active
+                                  Rejoin Session
                                 </Button>
+                              ) : query.sessionStatus === 'ended' ? (
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 2, fontStyle: "italic" }}>
+                                  Session Completed
+                                </Typography>
                               ) : isSelected ? (
                                 <Typography variant="body2" color="text.secondary" sx={{ mt: 2, fontStyle: "italic" }}>
                                   Ready to start session! Click "Start Session" above.

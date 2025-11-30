@@ -1,4 +1,4 @@
-# FL2025: Group &lt;Group Number&gt; &lt;Project Name&gt;
+`# FL2025: Group &lt;Group Number&gt; &lt;Project Name&gt;
 
 Name your repository using the following format:  
 **SP2025_Group_&lt;Group Number&gt;**  
@@ -56,3 +56,4 @@ We recommend using Docker for an easy setup. Follow these steps:
    ```
 3. **Access the Application**  
    Open your browser and navigate to `http://localhost:80` to access the application.
+`

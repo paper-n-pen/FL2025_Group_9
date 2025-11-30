@@ -9,7 +9,8 @@
     "start": "node index.js",
     "kb:crawl": "node scripts/crawl.js",
     "kb:ingest": "node scripts/ingest.js",
-    "kb:rebuild": "npm run kb:crawl && npm run kb:ingest"
+    "kb:rebuild": "npm run kb:crawl && npm run kb:ingest",
+    "migrate:tokens:v2": "node scripts/tokens-v2-migration.js"
   },
   "keywords": [],
   "author": "",
