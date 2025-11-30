@@ -35,6 +35,21 @@ export const storeAuthState = (
     return;
   }
 
+  // ✅ CRITICAL: Check if we're trying to overwrite a different user's data
+  const existingUser = parseUser(localStorage.getItem(keys.user));
+  if (existingUser && user && existingUser.id && user.id && existingUser.id !== user.id) {
+    console.error('[AUTH STORAGE] 🚨 PREVENTING DATA OVERWRITE!', {
+      userType,
+      existingUserId: existingUser.id,
+      existingUsername: existingUser.username,
+      newUserId: user.id,
+      newUsername: user.username,
+      action: 'REJECTING storeAuthState call to prevent data corruption'
+    });
+    // Don't overwrite - keep existing user data
+    return;
+  }
+
   const userPayload = user ? { ...user, userType: userType } : null;
 
   if (token) {
@@ -43,6 +58,11 @@ export const storeAuthState = (
 
   if (userPayload) {
     localStorage.setItem(keys.user, JSON.stringify(userPayload));
+    console.log('[AUTH STORAGE] ✅ Stored user data:', {
+      userType,
+      userId: userPayload.id,
+      username: userPayload.username,
+    });
   }
 
   sessionStorage.setItem(ACTIVE_USER_SESSION_KEY, userType);

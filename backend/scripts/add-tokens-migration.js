@@ -35,19 +35,20 @@ async function migrate() {
     `);
 
     // 3) Backfill initial tokens:
-    //    - Students with NULL or 0 → 100 tokens
-    //    - Tutors with NULL or incorrectly set to 100 → 0 tokens
-    //    - Does NOT overwrite real non-zero balances (except corrective cases)
+    //    - Students: Reset to 100 if they have 0 or NULL (but keep transaction balances if > 100)
+    //    - Tutors: ALWAYS reset to 0 (they earn coins from sessions)
     const backfillResult = await client.query(`
       UPDATE users
          SET tokens = CASE
                         WHEN user_type = 'student' AND (tokens IS NULL OR tokens = 0) THEN 100
-                        WHEN user_type = 'tutor'   AND (tokens IS NULL OR tokens = 100) THEN 0
+                        WHEN user_type = 'student' AND tokens > 100 THEN tokens  -- Keep transaction balances
+                        WHEN user_type = 'student' THEN 100  -- Safety: any other case
+                        WHEN user_type = 'tutor' THEN 0  -- ALWAYS reset tutors to 0
                         ELSE tokens
                       END
        WHERE (tokens IS NULL) 
           OR (user_type = 'student' AND tokens = 0)
-          OR (user_type = 'tutor' AND tokens = 100);
+          OR (user_type = 'tutor' AND tokens != 0);  -- Reset all tutors
     `);
 
     console.log(

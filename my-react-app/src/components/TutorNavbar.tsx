@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Avatar, Box, Button, Chip, Container, Typography } from "@mui/material";
-import { clearAuthState, storeAuthState } from "../utils/authStorage";
+import { clearAuthState, storeAuthState, getAuthStateForType } from "../utils/authStorage";
 import { getSocket } from "../socket";
 import { apiPath } from "../config";
 import api from "../lib/api";
@@ -38,75 +38,55 @@ export default function TutorNavbar({
 
   // Load tutor user from localStorage ONLY
   // ✅ TUTOR-SPECIFIC: Only reads from localStorage['tutorUser']
-  const loadTutorUser = useCallback(async () => {
+  const loadTutorUser = useCallback(() => {
     // Force a fresh read from localStorage (don't use any cached values)
     const userJson = localStorage.getItem('tutorUser');
-    
-    console.log('[TUTOR NAVBAR] 🔄 Loading tutor user (FORCE REFRESH):', {
-      path: location.pathname,
-      storageKey: 'tutorUser',
-      exists: !!userJson,
-      timestamp: Date.now(),
-    });
     
     if (userJson) {
       try {
         const parsedUser = JSON.parse(userJson);
+        
         // Map tokens to coins for frontend consistency
         const userWithCoins = {
           ...parsedUser,
           coins: parsedUser.tokens ?? parsedUser.coins ?? 0,
         };
         
-        // Force state update even if values appear the same
-        setUser(prevUser => {
-          // Always update to force re-render
-          if (prevUser?.coins !== userWithCoins.coins || prevUser?.id !== userWithCoins.id) {
-            console.log('[TUTOR NAVBAR] ✅ State changed, updating:', {
-              oldCoins: prevUser?.coins,
-              newCoins: userWithCoins.coins,
-              userId: userWithCoins.id,
-            });
-            return userWithCoins;
+        // ✅ CRITICAL: Only update if user ID changed or coins changed
+        // Use functional setState to compare with current state
+        setUser((prevUser: any) => {
+          // If same user ID and same coins, don't update (prevent infinite loop)
+          if (prevUser?.id === userWithCoins.id && prevUser?.coins === userWithCoins.coins) {
+            return prevUser; // Return same reference to prevent re-render
           }
-          // Even if same, return new object to force re-render
-          console.log('[TUTOR NAVBAR] ⚠️ Same coins, but forcing update:', {
-            coins: userWithCoins.coins,
-            userId: userWithCoins.id,
-          });
-          return { ...userWithCoins };
-        });
-        
-        console.log('[TUTOR NAVBAR] ✅ Loaded tutor:', {
-          userId: userWithCoins.id,
-          coins: userWithCoins.coins,
-          source: 'localStorage[tutorUser]',
+          
+          // ✅ CRITICAL: Check if this is a different user than what we're currently showing
+          if (prevUser && prevUser.id && userWithCoins.id && prevUser.id !== userWithCoins.id) {
+            console.error('[TUTOR NAVBAR] 🚨 USER ID MISMATCH - REJECTING UPDATE!', {
+              currentUserId: prevUser.id,
+              currentUsername: prevUser.username,
+              newUserId: userWithCoins.id,
+              newUsername: userWithCoins.username,
+              action: 'Keeping current user data, NOT updating'
+            });
+            return prevUser; // Keep current user
+          }
+          
+          return userWithCoins;
         });
       } catch (err) {
         console.error('[TUTOR NAVBAR] Failed to parse tutorUser:', err);
       }
     } else {
-      console.warn('[TUTOR NAVBAR] ⚠️ No tutorUser in localStorage');
-      // Optionally fetch from API if not in localStorage
-      try {
-        const resp = await api.get(apiPath('/auth/me'));
-        if (resp && resp.id) {
-          const userWithCoins = {
-            ...resp,
-            coins: resp.tokens ?? 0,
-          };
-          setUser(userWithCoins);
-          storeAuthState('tutor', null, userWithCoins);
-          console.log('[TUTOR NAVBAR] ✅ Fetched tutor from API:', {
-            userId: userWithCoins.id,
-            coins: userWithCoins.coins,
-          });
+      // Only set to null if we don't already have a user
+      setUser((prevUser: any) => {
+        if (!prevUser) {
+          return null;
         }
-      } catch (err) {
-        console.error('[TUTOR NAVBAR] Failed to fetch from API:', err);
-      }
+        return prevUser; // Keep existing user
+      });
     }
-  }, [location.pathname]);
+  }, [location.pathname]); // ✅ Remove user from dependencies to prevent infinite loop
 
   // Load on mount and location change
   useEffect(() => {
@@ -117,25 +97,47 @@ export default function TutorNavbar({
   useEffect(() => {
     const handleTokenUpdate = (event: Event) => {
       const customEvent = event as CustomEvent;
-      console.log('[TUTOR NAVBAR] 🔔 Coin update event received:', {
-        detail: customEvent.detail,
-        timestamp: Date.now(),
-        tutorCoins: customEvent.detail?.tutorCoins,
-      });
-      
-      // Force reload from localStorage immediately
+      // Get current user from state at the time of event
+      const currentUserJson = localStorage.getItem('tutorUser');
+      if (currentUserJson) {
+        try {
+          const currentUser = JSON.parse(currentUserJson);
+          const eventUserId = customEvent.detail?.userId;
+          // Only reload if the event is for the current user or no userId specified
+          if (eventUserId && currentUser?.id && eventUserId !== currentUser.id) {
+            return; // Ignore events for other users
+          }
+        } catch (e) {
+          // If parsing fails, just reload
+        }
+      }
       loadTutorUser();
     };
 
     // Also listen for storage events (works across tabs/windows)
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'tutorUser' && e.newValue) {
-        console.log('[TUTOR NAVBAR] 🔔 Storage event received for tutorUser:', {
-          oldValue: e.oldValue,
-          newValue: e.newValue,
-          timestamp: Date.now(),
-        });
-        loadTutorUser();
+        try {
+          const newUser = JSON.parse(e.newValue);
+          // Read current user from localStorage to avoid stale closure
+          const currentUserJson = localStorage.getItem('tutorUser');
+          if (currentUserJson) {
+            try {
+              const currentUser = JSON.parse(currentUserJson);
+              // ✅ CRITICAL: Only reload if the user ID matches
+              // This prevents tutor103's navbar from reloading when tutor101 logs in
+              if (currentUser?.id && newUser.id && currentUser.id !== newUser.id) {
+                return; // Don't reload - different user
+              }
+            } catch (e) {
+              // If parsing fails, just reload
+            }
+          }
+          
+          loadTutorUser();
+        } catch (err) {
+          console.error('[TUTOR NAVBAR] Failed to parse storage event:', err);
+        }
       }
     };
 
@@ -143,24 +145,13 @@ export default function TutorNavbar({
     window.addEventListener('token-update', handleTokenUpdate, true);
     window.addEventListener('storage', handleStorageChange);
     
-    console.log('[TUTOR NAVBAR] 👂 Listening for token-update events (capture phase) and storage events');
-    
     return () => {
       window.removeEventListener('token-update', handleTokenUpdate, true);
       window.removeEventListener('storage', handleStorageChange);
-      console.log('[TUTOR NAVBAR] 🛑 Stopped listening for events');
     };
   }, [loadTutorUser]);
 
-  // Log whenever user changes
-  useEffect(() => {
-    if (user) {
-      console.log('[TUTOR NAVBAR] 🪙 Displaying tutor coins:', {
-        userId: user.id,
-        coins: user.coins,
-      });
-    }
-  }, [user]);
+  // Removed excessive logging to prevent console flooding
 
   const handleLogout = useCallback(async () => {
     try {
@@ -219,11 +210,18 @@ export default function TutorNavbar({
             sx={{ bgcolor: "primary.main", cursor: "pointer" }} 
             onClick={handleDashboardClick}
           >
-            MT
+            {user?.username?.[0]?.toUpperCase() || user?.name?.[0]?.toUpperCase() || 'MT'}
           </Avatar>
-          <Typography variant="h6" fontWeight="bold" color="text.primary">
-            MicroTutor
-          </Typography>
+          <Box>
+            <Typography variant="h6" fontWeight="bold" color="text.primary">
+              MicroTutor
+            </Typography>
+            {user?.username && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1 }}>
+                {user.username}
+              </Typography>
+            )}
+          </Box>
         </Box>
 
         <Box display="flex" gap={1} alignItems="center">

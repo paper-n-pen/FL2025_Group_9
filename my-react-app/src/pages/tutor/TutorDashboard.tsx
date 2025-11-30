@@ -1,4 +1,6 @@
 // src/pages/tutor/TutorDashboard.tsx
+// NOTE: Guard against cross-tab account switching:
+// if stored user for this tab != /api/me user, force logout in this tab.
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -42,20 +44,33 @@ export default function TutorDashboard() {
   const [acceptedQueries, setAcceptedQueries] = useState<StudentQuery[]>([]);
   const declinedQueryIdsRef = useRef<Set<string>>(new Set());
   const [tutorUser, setTutorUser] = useState<any>(() => {
+    // ✅ CRITICAL: Check sessionStorage FIRST (tab-specific, never cleared by other tabs)
+    const tabTutorId = sessionStorage.getItem('tabTutorId');
+    const tabTutorData = sessionStorage.getItem('tabTutorData');
+    if (tabTutorId && tabTutorData) {
+      try {
+        const parsed = JSON.parse(tabTutorData);
+        if (parsed && parsed.id && parsed.id.toString() === tabTutorId) {
+          return parsed;
+        }
+      } catch (e) {
+        // If parsing fails, fall through to localStorage
+      }
+    }
+    // Fallback to localStorage
     const stored = getAuthStateForType("tutor");
     return stored.user;
   });
   const navigate = useNavigate();
 
   // ✅ Fetch available queries
+  // Backend already filters out declined queries, so we don't need the frontend ref filter
   const fetchQueries = useCallback(async () => {
     try {
       if (!tutorUser?.id) return;
       const response = await api.get(apiPath(`/queries/tutor/${tutorUser.id}`));
-      const filtered = (Array.isArray(response) ? response : []).filter(
-        (item: StudentQuery) => !declinedQueryIdsRef.current.has(item.id)
-      );
-      setQueries(filtered);
+      // Backend already filters declined queries, so just use the response directly
+      setQueries(Array.isArray(response) ? response : []);
     } catch (error) {
       console.error("Error fetching queries:", error);
     }
@@ -77,43 +92,230 @@ export default function TutorDashboard() {
     }
   }, [tutorUser?.id]);
 
-  // ✅ Auth check
+  // ✅ Auth check - ONLY runs once on mount, uses localStorage as source of truth
   useEffect(() => {
     let isMounted = true;
 
-    const fetchTutor = async () => {
+    // ✅ CRITICAL FIX: Check sessionStorage first to preserve tutor identity per tab
+    // sessionStorage is tab-specific, so even if localStorage is cleared by another tab,
+    // this tab will remember its tutor identity
+    const tabTutorId = sessionStorage.getItem('tabTutorId');
+    const tabTutorData = sessionStorage.getItem('tabTutorData');
+    
+    // If we have tutor data in sessionStorage (tab-specific), use it
+    if (tabTutorId && tabTutorData) {
       try {
-        const res = await api.get(apiPath("/me"));
+        const parsedTutor = JSON.parse(tabTutorData);
+        if (parsedTutor && parsedTutor.id && parsedTutor.id.toString() === tabTutorId) {
+          // Restore to localStorage if it was cleared
+          if (isMounted) {
+            setTutorUser(parsedTutor);
+            markActiveUserType("tutor");
+            // Restore to localStorage so other parts of the app can access it
+            storeAuthState("tutor", null, parsedTutor);
+          }
+          return; // ✅ CRITICAL: Exit early - don't call /api/me at all
+        }
+      } catch (e) {
+        // If parsing fails, continue to check localStorage
+      }
+    }
+
+    // ✅ CRITICAL: Use localStorage as the PRIMARY source of truth
+    // NEVER call /api/me if we already have valid tutor data in localStorage
+    // This prevents cookie conflicts when multiple tutors are logged in different tabs
+    // Also check directly from localStorage to ensure we get the data even if it was set in another tab
+    const tutorUserJson = localStorage.getItem('tutorUser');
+    const existingTutor = tutorUserJson ? (() => {
+      try {
+        return JSON.parse(tutorUserJson);
+      } catch {
+        return null;
+      }
+    })() : null;
+    
+    // ✅ CRITICAL: If we have tutor data in localStorage, use it and NEVER call /api/me
+    // Also save to sessionStorage to preserve it across localStorage clears
+    if (existingTutor && existingTutor.id) {
+      // ✅ CRITICAL: ALWAYS save to sessionStorage to preserve this tab's identity
+      // This ensures that even if localStorage is cleared by another tab, this tab remembers its user
+      sessionStorage.setItem('tabTutorId', existingTutor.id.toString());
+      sessionStorage.setItem('tabTutorData', JSON.stringify(existingTutor));
+      
+      if (isMounted) {
+        setTutorUser(existingTutor);
+        markActiveUserType("tutor");
+      }
+      return; // ✅ CRITICAL: Exit early - don't call /api/me at all
+    }
+
+    // ✅ CRITICAL: If we reach here, both sessionStorage and localStorage are empty
+    // This should ONLY happen on first-time login in a new tab
+    // Before calling /api/me, do one final check of sessionStorage (race condition protection)
+    const lastChanceTabTutorId = sessionStorage.getItem('tabTutorId');
+    const lastChanceTabTutorData = sessionStorage.getItem('tabTutorData');
+    if (lastChanceTabTutorId && lastChanceTabTutorData) {
+      try {
+        const parsed = JSON.parse(lastChanceTabTutorData);
+        if (parsed && parsed.id && parsed.id.toString() === lastChanceTabTutorId) {
+          if (isMounted) {
+            setTutorUser(parsed);
+            markActiveUserType("tutor");
+            storeAuthState("tutor", null, parsed);
+          }
+          return; // Don't call API
+        }
+      } catch (e) {
+        // Continue to API call
+      }
+    }
+
+    // Only call /api/me if BOTH sessionStorage AND localStorage are completely empty
+    // This should NEVER happen if sessionStorage was properly set
+    const fetchTutor = async () => {
+      // ✅ CRITICAL: Double-check sessionStorage one more time before calling API
+      const finalCheckTabTutorId = sessionStorage.getItem('tabTutorId');
+      const finalCheckTabTutorData = sessionStorage.getItem('tabTutorData');
+      if (finalCheckTabTutorId && finalCheckTabTutorData) {
+        try {
+          const parsed = JSON.parse(finalCheckTabTutorData);
+          if (parsed && parsed.id && parsed.id.toString() === finalCheckTabTutorId) {
+            if (isMounted) {
+              setTutorUser(parsed);
+              markActiveUserType("tutor");
+              storeAuthState("tutor", null, parsed);
+            }
+            return; // Don't call API
+          }
+        } catch (e) {
+          // Continue to API call
+        }
+      }
+
+      try {
+        // ✅ CRITICAL: Send expectedUserId from sessionStorage if available
+        // This tells backend to verify cookie matches expected user
+        const tabTutorId = sessionStorage.getItem('tabTutorId');
+        const url = tabTutorId 
+          ? `${apiPath("/me")}?expectedUserId=${tabTutorId}`
+          : apiPath("/me");
+        const res = await api.get(url);
         const u = res?.user;
         const resolvedRole = (u?.userType || u?.role || "").toLowerCase();
 
         if (resolvedRole === "tutor" && u) {
-          const normalized = { ...u, userType: "tutor" };
+          // ✅ CRITICAL: Guard against cross-tab account switching
+          // Read the previously stored user for THIS TAB
+          let storedUser: any = null;
+          try {
+            // Check sessionStorage first (tab-specific)
+            const tabTutorData = sessionStorage.getItem('tabTutorData');
+            if (tabTutorData) {
+              storedUser = JSON.parse(tabTutorData);
+            } else {
+              // Fallback to localStorage
+              const tutorUserJson = localStorage.getItem('tutorUser');
+              if (tutorUserJson) {
+                storedUser = JSON.parse(tutorUserJson);
+              }
+            }
+          } catch (_) {
+            storedUser = null;
+          }
+
+          // Extract ids using the same property names current code uses
+          const storedUserId = storedUser && (storedUser.id ?? storedUser.userId ?? storedUser.user_id);
+          const apiUserId = u && (u.id ?? u.userId ?? u.user_id);
+
+          // If we HAD a stored user, and ids differ → account switched
+          if (storedUserId && apiUserId && storedUserId !== apiUserId) {
+            console.error("[AUTH] Account changed in another tab", {
+              storedUserId,
+              fromApi: apiUserId,
+            });
+
+            // Clear any auth-related storage for this tab
+            try {
+              localStorage.removeItem('tutorUser');
+              localStorage.removeItem('tutorToken');
+              sessionStorage.removeItem('tabTutorId');
+              sessionStorage.removeItem('tabTutorData');
+              sessionStorage.removeItem('activeUserType');
+            } catch (_) {}
+
+            // Redirect to login
+            if (isMounted) {
+              clearAuthState("tutor");
+              navigate("/tutor/login?reason=account-switched", { replace: true });
+            }
+            return; // IMPORTANT: do not proceed to setUser with mismatched data
+          }
+
+          const normalized = { 
+            ...u, 
+            userType: "tutor",
+            username: u.username || u.name,
+            tokens: u.tokens ?? 0,
+            coins: u.tokens ?? 0,
+          };
+          
+          // Save to sessionStorage to preserve this tab's identity
+          sessionStorage.setItem('tabTutorId', normalized.id.toString());
+          sessionStorage.setItem('tabTutorData', JSON.stringify(normalized));
+          
           if (isMounted) {
             setTutorUser(normalized);
             markActiveUserType("tutor");
             storeAuthState("tutor", null, normalized);
           }
+
+          console.log("[AUTH] /api/me user confirmed for this tab", {
+            userId: apiUserId,
+          });
+
+          return;
+        }
+      } catch (error: any) {
+        // ✅ CRITICAL: If backend returns 403 (user mismatch), use sessionStorage data
+        if (error?.message?.includes('403') || error?.message?.includes('User mismatch')) {
+          const tabTutorData = sessionStorage.getItem('tabTutorData');
+          if (tabTutorData) {
+            try {
+              const parsedTutor = JSON.parse(tabTutorData);
+              if (parsedTutor && parsedTutor.id) {
+                console.log('[TUTOR DASHBOARD] ✅ Backend returned user mismatch, using sessionStorage data');
+                if (isMounted) {
+                  setTutorUser(parsedTutor);
+                  markActiveUserType("tutor");
+                  // Restore to localStorage
+                  storeAuthState("tutor", null, parsedTutor);
+                }
+                return;
+              }
+            } catch (e) {
+              // If parsing fails, continue to error handling
+            }
+          }
+        }
+
+        // If we get here, it means the user is not a tutor or there was an error
+        const message = String(error?.message ?? "").toLowerCase();
+        const unauthorized = message.includes("401") || message.includes("unauthorized");
+        const userMismatch = message.includes("403") || message.includes("user mismatch");
+
+        // If it's a user mismatch, we already handled it above, so just return
+        if (userMismatch) {
           return;
         }
 
-        throw new Error("Tutor role not confirmed");
-      } catch (error: any) {
-        const cachedTutor = getAuthStateForType("tutor").user;
-        const message = String(error?.message ?? "").toLowerCase();
-        const unauthorized = message.includes("401") || message.includes("unauthorized");
-
-        if (!cachedTutor || unauthorized) {
+        if (unauthorized) {
           clearAuthState("tutor");
           if (isMounted) navigate("/tutor/login", { replace: true });
           return;
         }
 
-        console.warn("Falling back to cached tutor auth after /me failure", error);
-        if (isMounted) {
-          setTutorUser(cachedTutor);
-          markActiveUserType("tutor");
-        }
+        console.error('[TUTOR DASHBOARD] Error fetching tutor:', error);
+        // Don't navigate on other errors - just log
       }
     };
 
@@ -122,7 +324,7 @@ export default function TutorDashboard() {
     return () => {
       isMounted = false;
     };
-  }, [navigate]);
+  }, [navigate]); // ✅ Only run once on mount - don't re-run on every render
 
   // ✅ Socket setup
   useEffect(() => {
@@ -148,26 +350,48 @@ export default function TutorDashboard() {
 
     const queryNotSelectedHandler = (data: any) => {
       console.log("Query not selected (another tutor chosen):", data);
-      // Remove this query from accepted queries list
-      setAcceptedQueries((prev: StudentQuery[]) =>
-        prev.filter((q: StudentQuery) => q.id !== data.queryId)
-      );
+      // Refresh to show expired status
+      fetchAcceptedQueries();
+    };
+
+    const queryExpiredHandler = (data: any) => {
+      console.log("Query expired (another tutor selected):", data);
+      // Refresh to show expired status with OK button
+      fetchAcceptedQueries();
     };
 
     // 🔥 NEW: Listen for coin updates when student enters session
     const coinsUpdatedHandler = (data: any) => {
       console.log('[🪙 COINS] 🔔 Coin update event received from backend:', data);
       
+      // ✅ CRITICAL: Double-check user ID matches before updating
       if (tutorUser && data.userId === tutorUser.id && data.newBalance !== undefined) {
+        // ✅ EXTRA SAFETY: Verify the userId in the event matches our current tutor
+        const currentTutorFromStorage = getAuthStateForType("tutor").user;
+        if (currentTutorFromStorage?.id !== tutorUser.id) {
+          console.error('[🪙 COINS] ⚠️ User ID mismatch in coin update event!', {
+            eventUserId: data.userId,
+            currentTutorId: tutorUser.id,
+            storageTutorId: currentTutorFromStorage?.id,
+            action: 'Ignoring coin update'
+          });
+          return;
+        }
+        
         const updatedTutor = {
           ...tutorUser,
           tokens: data.newBalance,
+          coins: data.newBalance,
         };
+        // Update sessionStorage to preserve tab identity
+        sessionStorage.setItem('tabTutorId', updatedTutor.id.toString());
+        sessionStorage.setItem('tabTutorData', JSON.stringify(updatedTutor));
         setTutorUser(updatedTutor);
         storeAuthState('tutor', null, updatedTutor);
         
         console.log('[🪙 COINS] ✅ Tutor coins updated from socket event:', {
           userId: updatedTutor.id,
+          username: updatedTutor.username,
           newCoins: updatedTutor.tokens,
           earned: data.earned,
           reason: data.reason,
@@ -177,12 +401,19 @@ export default function TutorDashboard() {
         window.dispatchEvent(new CustomEvent('token-update', {
           detail: { userId: updatedTutor.id, tokens: updatedTutor.tokens }
         }));
+      } else {
+        console.log('[🪙 COINS] ⚠️ Coin update event ignored - user ID mismatch or missing data:', {
+          eventUserId: data.userId,
+          currentTutorId: tutorUser?.id,
+          hasBalance: data.newBalance !== undefined,
+        });
       }
     };
 
     socket.on("new-query", newQueryHandler);
     socket.on("query-assigned", queryAssignedHandler);
     socket.on("query-not-selected", queryNotSelectedHandler);
+    socket.on("query-expired", queryExpiredHandler);
     socket.on("session-created", sessionCreatedHandler);
     socket.on("coins-updated", coinsUpdatedHandler);  // 🔥 NEW
 
@@ -191,6 +422,7 @@ export default function TutorDashboard() {
       socket.off("new-query", newQueryHandler);
       socket.off("query-assigned", queryAssignedHandler);
       socket.off("query-not-selected", queryNotSelectedHandler);
+      socket.off("query-expired", queryExpiredHandler);
       socket.off("session-created", sessionCreatedHandler);
       socket.off("coins-updated", coinsUpdatedHandler);  // 🔥 NEW
     };
@@ -210,6 +442,29 @@ export default function TutorDashboard() {
     const interval = setInterval(fetchAcceptedQueries, 5000);
     return () => clearInterval(interval);
   }, [tutorUser?.id, fetchAcceptedQueries]);
+
+  // ✅ Dismiss expired query
+  const handleDismissExpired = async (queryId: string) => {
+    try {
+      if (!tutorUser?.id) {
+        alert("Please log in again");
+        return;
+      }
+      const response = await api.post(apiPath("/queries/tutor/dismiss-expired"), {
+        queryId,
+        tutorId: tutorUser.id.toString(),
+      });
+      if (response?.ok) {
+        // Remove from accepted queries list
+        setAcceptedQueries((prevQueries) =>
+          prevQueries.filter((item) => item.id !== queryId)
+        );
+      }
+    } catch (error: any) {
+      console.error("Error dismissing expired query:", error);
+      alert("Failed to dismiss expired query. Please try again.");
+    }
+  };
 
   // ✅ Query handlers
   const handleAcceptQuery = async (queryId: string) => {
@@ -256,17 +511,48 @@ export default function TutorDashboard() {
   };
 
   const handleStartSession = async (query: StudentQuery) => {
+    if (!tutorUser?.id) {
+      alert("Your session expired. Please login again.");
+      navigate("/tutor/login", { replace: true });
+      return;
+    }
+
     try {
+      // Check if session already exists
+      const sessionId = query.sessionId;
+      
+      if (sessionId) {
+        // Session already exists, just navigate to it
+        console.log('[TUTOR DASHBOARD] Session already exists, navigating to:', sessionId);
+        navigate(`/session/${sessionId}`, {
+          state: { userType: "tutor", user: tutorUser },
+          replace: false,
+        });
+        return;
+      }
+
+      // Create new session
       const response = await api.post(apiPath("/queries/session"), {
         queryId: query.id,
         tutorId: tutorUser.id,
         studentId: query.studentId,
       });
-      const sessionId = response?.sessionId;
-      if (sessionId) navigate(`/session/${sessionId}`);
+      
+      const newSessionId = response?.sessionId;
+      if (newSessionId) {
+        console.log('[TUTOR DASHBOARD] Session created, navigating to:', newSessionId);
+        navigate(`/session/${newSessionId}`, {
+          state: { userType: "tutor", user: tutorUser },
+          replace: false,
+        });
+      } else {
+        console.error('[TUTOR DASHBOARD] No sessionId in response:', response);
+        alert("Failed to start session. Session ID not received.");
+      }
     } catch (error: any) {
       console.error("Error starting session:", error);
-      alert("Failed to start session. Please try again.");
+      const errorMessage = error?.response?.data?.message || error?.message || "Failed to start session. Please try again.";
+      alert(errorMessage);
     }
   };
 
@@ -298,6 +584,9 @@ export default function TutorDashboard() {
       console.error("Tutor logout error:", error);
     } finally {
       clearAuthState("tutor");
+      // Clear sessionStorage on logout
+      sessionStorage.removeItem('tabTutorId');
+      sessionStorage.removeItem('tabTutorData');
       setTutorUser(null);
       navigate("/tutor/login", { replace: true });
     }
@@ -493,6 +782,7 @@ export default function TutorDashboard() {
                       // Check acceptance status from the query object
                       const acceptanceStatus = (query as any).acceptanceStatus || 'PENDING';
                       const isSelected = acceptanceStatus === 'SELECTED';
+                      const isExpired = acceptanceStatus === 'EXPIRED';
                       // Allow starting session if selected and query is ASSIGNED (case-insensitive check)
                       const queryStatusUpper = (query.status || '').toUpperCase();
                       const canStartSession = isSelected && (
@@ -510,10 +800,14 @@ export default function TutorDashboard() {
                           variant="outlined"
                           sx={{ 
                             borderRadius: 2, 
-                            backgroundColor: isSelected 
+                            backgroundColor: isExpired
+                              ? "rgba(239, 68, 68, 0.1)"
+                              : isSelected 
                               ? "rgba(16, 185, 129, 0.15)"
                               : "rgba(255, 193, 7, 0.15)",
-                            border: isSelected
+                            border: isExpired
+                              ? "1px solid rgba(239, 68, 68, 0.3)"
+                              : isSelected
                               ? "1px solid rgba(16, 185, 129, 0.3)"
                               : "1px solid rgba(255, 193, 7, 0.3)",
                           }}
@@ -543,7 +837,31 @@ export default function TutorDashboard() {
                                   sx={{ mt: 1, alignSelf: "flex-start" }}
                                 />
                               )}
-                              {isSelected && canStartSession && !canRejoinSession ? (
+                              {isExpired && (
+                                <Chip 
+                                  label="This query has expired" 
+                                  color="error" 
+                                  size="small" 
+                                  sx={{ mt: 1, alignSelf: "flex-start" }}
+                                />
+                              )}
+                              {isExpired ? (
+                                <Button
+                                  variant="contained"
+                                  color="error"
+                                  onClick={() => handleDismissExpired(query.id)}
+                                  sx={{
+                                    mt: 1,
+                                    borderRadius: "12px",
+                                    px: 3,
+                                    py: 1,
+                                    textTransform: "none",
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  OK
+                                </Button>
+                              ) : isSelected && canStartSession && !canRejoinSession ? (
                                 <Button
                                   variant="contained"
                                   sx={{ 

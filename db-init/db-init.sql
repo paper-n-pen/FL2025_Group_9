@@ -56,6 +56,21 @@ CREATE TABLE IF NOT EXISTS query_declines (
 CREATE INDEX IF NOT EXISTS idx_query_declines_tutor ON query_declines(tutor_id);
 CREATE INDEX IF NOT EXISTS idx_query_declines_query ON query_declines(query_id);
 
+CREATE TABLE IF NOT EXISTS query_acceptances (
+  id BIGSERIAL PRIMARY KEY,
+  query_id BIGINT NOT NULL REFERENCES queries(id) ON DELETE CASCADE,
+  tutor_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+  accepted_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (query_id, tutor_id),
+  CONSTRAINT check_status CHECK (status IN ('PENDING', 'SELECTED', 'REJECTED', 'EXPIRED', 'DISMISSED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_query_acceptances_query_id ON query_acceptances(query_id);
+CREATE INDEX IF NOT EXISTS idx_query_acceptances_tutor_id ON query_acceptances(tutor_id);
+CREATE INDEX IF NOT EXISTS idx_query_acceptances_status ON query_acceptances(status);
+
 CREATE TABLE IF NOT EXISTS password_reset_tokens (
   token TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

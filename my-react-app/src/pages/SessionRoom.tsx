@@ -27,6 +27,7 @@ import Whiteboard from "../Whiteboard";
 import VideoCallPanel from "../components/VideoCallPanel";
 import {
   getActiveAuthState,
+  getAuthStateForType,
   markActiveUserType,
   storeAuthState,
 } from "../utils/authStorage";
@@ -241,13 +242,13 @@ export default function SessionRoom() {
 
   const scheduleRedirect = useCallback((targetPath?: string) => {
     if (redirectTimeoutRef.current) window.clearTimeout(redirectTimeoutRef.current);
-    redirectTimeoutRef.current = window.setTimeout(() => {
-      if (targetPath) {
-        navigate(targetPath, { replace: true });
-        return;
-      }
-      goBackToDashboard();
-    }, 1200);
+    // Navigate immediately instead of waiting 1200ms
+    console.log('[NAVIGATION] scheduleRedirect called with path:', targetPath);
+    if (targetPath) {
+      navigate(targetPath, { replace: true });
+      return;
+    }
+    goBackToDashboard();
   }, [goBackToDashboard, navigate]);
 
   // Refresh current user's COIN BALANCE using session-specific endpoint
@@ -433,19 +434,28 @@ export default function SessionRoom() {
         console.warn('[🪙 COINS SYNC] ⚠️ Student coins API did not return ok=true');
       }
 
-      // Update tutor coins
-      if (tutorCoinsResp && tutorCoinsResp.ok) {
-        const tutorData = {
-          id: tutorId,
-          userType: 'tutor',
-          tokens: tutorCoinsResp.coins,
-          coins: tutorCoinsResp.coins,
-        };
-        storeAuthState('tutor', null, tutorData);
-        console.log('[🪙 COINS SYNC] ✅ Tutor coins updated:', {
-          tutorId,
-          coins: tutorCoinsResp.coins,
-        });
+      // Update tutor coins - ONLY if this tutor is currently logged in
+      if (tutorCoinsResp && tutorCoinsResp.ok && tutorId) {
+        // ✅ CRITICAL: Check if this tutor is the one currently logged in
+        const currentTutorFromStorage = getAuthStateForType("tutor").user;
+        if (currentTutorFromStorage && currentTutorFromStorage.id === tutorId) {
+          const tutorData = {
+            ...currentTutorFromStorage, // Preserve all existing tutor data
+            userType: 'tutor',
+            tokens: tutorCoinsResp.coins,
+            coins: tutorCoinsResp.coins,
+          };
+          storeAuthState('tutor', null, tutorData);
+          console.log('[🪙 COINS SYNC] ✅ Tutor coins updated (matched logged-in tutor):', {
+            tutorId,
+            coins: tutorCoinsResp.coins,
+          });
+        } else {
+          console.log('[🪙 COINS SYNC] ⚠️ Skipping tutor coin update - different tutor logged in:', {
+            sessionTutorId: tutorId,
+            loggedInTutorId: currentTutorFromStorage?.id,
+          });
+        }
       } else {
         console.warn('[🪙 COINS SYNC] ⚠️ Tutor coins API did not return ok=true');
       }
@@ -588,22 +598,22 @@ export default function SessionRoom() {
       setTimerStatus("ended");
       const isStudent = user?.userType === "student";
       if (isStudent) {
-        setShowRating(true);
-        const nextPath = `/student/rate-session/${payload.sessionId}`;
         enqueueSnack(
-          "Session has ended. Redirecting to rate your tutor...",
+          "Session has ended. Redirecting to your dashboard...",
           "info"
         );
-        scheduleRedirect(nextPath);
+        console.log('[NAVIGATION] handleSessionEnded → Student going to dashboard');
+        navigate("/student/dashboard", { replace: true });
       } else {
         enqueueSnack(
           "Session has ended. Redirecting to your dashboard...",
           "info"
         );
-        scheduleRedirect(undefined);
+        console.log('[NAVIGATION] handleSessionEnded → Tutor going to dashboard');
+        navigate("/tutor/dashboard", { replace: true });
       }
     }
-  }, [sessionId, user?.userType, enqueueSnack, scheduleRedirect]);
+  }, [sessionId, user?.userType, enqueueSnack, navigate]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -758,25 +768,18 @@ export default function SessionRoom() {
           isTutor: currentIsTutor,
         });
         
-        // Only show rating for students after final end - navigate to rating page
+        // Navigate students to dashboard after final end
         if (currentIsStudent) {
-          setShowRating(true);
-          console.log('[NAVIGATION] → Student going to rating page');
-          // Navigate to rating page after delay (tokens already synced)
-          setTimeout(() => {
-            navigate(`/student/rate-session/${sessionId}`, { replace: true });
-          }, 1500);
+          console.log('[NAVIGATION] → Student going to dashboard');
+          // Navigate immediately (tokens already synced)
+          navigate("/student/dashboard", { replace: true });
         } else if (currentIsTutor) {
           // For tutors, just go back to tutor dashboard
           console.log('[NAVIGATION] → Tutor going back to tutor dashboard');
-          setTimeout(() => {
-            navigate("/tutor/dashboard", { replace: true });
-          }, 1500);
+          navigate("/tutor/dashboard", { replace: true });
         } else {
           console.log('[NAVIGATION] → Unknown role, using goBackToDashboard');
-          setTimeout(() => {
-            goBackToDashboard();
-          }, 1500);
+          goBackToDashboard();
         }
       }
       // If it's an API-ended event (has endedBy), let the existing handler in the other useEffect handle it
@@ -923,17 +926,59 @@ export default function SessionRoom() {
   };
 
   const handleHardEnd = async () => {
-    if (!socket || !sessionId) return;
-    socket.emit("session-hard-end", { sessionId, reason: "manual-end" });
+    if (!sessionId || !user) return;
     setShowEndConfirm(false);
+    setIsEnding(true);
     
-    // 🔄 SYNC BOTH STUDENT AND TUTOR COINS FROM DATABASE after hard end
-    console.log('[🪙 COINS SYNC] Hard end triggered, syncing both coins from database...');
     try {
-      await refreshBothCoins();
-      console.log('[🪙 COINS SYNC] ✅ Both coins synced successfully from database');
-    } catch (error) {
-      console.error('[🪙 COINS SYNC] ❌ Failed to sync coins:', error);
+      // Call API endpoint to end session
+      await api.post(apiPath("/queries/session/end"), {
+        sessionId: Number(sessionId),
+        endedBy: user.id,
+      });
+      
+      // Also emit socket event for immediate UI update
+      if (socket) {
+        socket.emit("session-hard-end", { sessionId, reason: "manual-end" });
+      }
+      
+      // 🔄 SYNC BOTH STUDENT AND TUTOR COINS FROM DATABASE after hard end
+      console.log('[🪙 COINS SYNC] Hard end triggered, syncing both coins from database...');
+      try {
+        await refreshBothCoins();
+        console.log('[🪙 COINS SYNC] ✅ Both coins synced successfully from database');
+      } catch (error) {
+        console.error('[🪙 COINS SYNC] ❌ Failed to sync coins:', error);
+      }
+      
+      // Navigate immediately after ending session
+      const currentIsStudent = user.userType === "student";
+      const currentIsTutor = user.userType === "tutor";
+      
+      console.log('[NAVIGATION] handleHardEnd determining redirect:', {
+        userType: user.userType,
+        isStudent: currentIsStudent,
+        isTutor: currentIsTutor,
+      });
+      
+      if (currentIsStudent) {
+        enqueueSnack("Session ended successfully. Redirecting to your dashboard...", "success");
+        console.log('[NAVIGATION] → Student going to dashboard');
+        navigate("/student/dashboard", { replace: true });
+      } else if (currentIsTutor) {
+        enqueueSnack("Session ended successfully. Redirecting to your dashboard...", "success");
+        console.log('[NAVIGATION] → Tutor going to tutor dashboard');
+        navigate("/tutor/dashboard", { replace: true });
+      } else {
+        console.log('[NAVIGATION] → Unknown role, using goBackToDashboard');
+        enqueueSnack("Session ended successfully.", "success");
+        goBackToDashboard();
+      }
+    } catch (err) {
+      console.error("Hard end session failed:", err);
+      enqueueSnack("Failed to end session. Please try again.", "error");
+    } finally {
+      setIsEnding(false);
     }
   };
 
@@ -993,18 +1038,17 @@ export default function SessionRoom() {
       });
       
       if (currentIsStudent) {
-        const nextPath = `/student/rate-session/${sessionId}`;
-        enqueueSnack("Session ended successfully. Redirecting to rate your tutor...", "success");
-        console.log('[NAVIGATION] → Student going to rating page');
-        scheduleRedirect(nextPath);
+        enqueueSnack("Session ended successfully. Redirecting to your dashboard...", "success");
+        console.log('[NAVIGATION] → Student going to dashboard');
+        navigate("/student/dashboard", { replace: true });
       } else if (currentIsTutor) {
         enqueueSnack("Session ended successfully. Redirecting to your dashboard...", "success");
         console.log('[NAVIGATION] → Tutor going to tutor dashboard');
-        scheduleRedirect("/tutor/dashboard");
+        navigate("/tutor/dashboard", { replace: true });
       } else {
         console.log('[NAVIGATION] → Unknown role, using goBackToDashboard');
         enqueueSnack("Session ended successfully.", "success");
-        scheduleRedirect(undefined);
+        goBackToDashboard();
       }
     } catch (err) {
       console.error("End session failed:", err);

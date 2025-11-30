@@ -36,54 +36,54 @@ export default function StudentNavbar({
 
   // Load student user from localStorage ONLY
   // ✅ STUDENT-SPECIFIC: Only reads from localStorage['studentUser']
-  const loadStudentUser = useCallback(async () => {
+  const loadStudentUser = useCallback(() => {
     const userJson = localStorage.getItem('studentUser');
-    
-    console.log('[STUDENT NAVBAR] 🔄 Loading student user:', {
-      path: location.pathname,
-      storageKey: 'studentUser',
-      exists: !!userJson,
-    });
     
     if (userJson) {
       try {
         const parsedUser = JSON.parse(userJson);
+        
         // Map tokens to coins for frontend consistency
         const userWithCoins = {
           ...parsedUser,
           coins: parsedUser.tokens ?? parsedUser.coins ?? 0,
         };
-        setUser(userWithCoins);
-        console.log('[STUDENT NAVBAR] ✅ Loaded student:', {
-          userId: userWithCoins.id,
-          coins: userWithCoins.coins,
-          source: 'localStorage[studentUser]',
+        
+        // ✅ CRITICAL: Only update if user ID changed or coins changed
+        // Use functional setState to compare with current state
+        setUser((prevUser: any) => {
+          // If same user ID and same coins, don't update (prevent infinite loop)
+          if (prevUser?.id === userWithCoins.id && prevUser?.coins === userWithCoins.coins) {
+            return prevUser; // Return same reference to prevent re-render
+          }
+          
+          // ✅ CRITICAL: Check if this is a different user than what we're currently showing
+          if (prevUser && prevUser.id && userWithCoins.id && prevUser.id !== userWithCoins.id) {
+            console.error('[STUDENT NAVBAR] 🚨 USER ID MISMATCH - REJECTING UPDATE!', {
+              currentUserId: prevUser.id,
+              currentUsername: prevUser.username,
+              newUserId: userWithCoins.id,
+              newUsername: userWithCoins.username,
+              action: 'Keeping current user data, NOT updating'
+            });
+            return prevUser; // Keep current user
+          }
+          
+          return userWithCoins;
         });
       } catch (err) {
         console.error('[STUDENT NAVBAR] Failed to parse studentUser:', err);
       }
     } else {
-      console.warn('[STUDENT NAVBAR] ⚠️ No studentUser in localStorage');
-      // Optionally fetch from API if not in localStorage
-      try {
-        const resp = await api.get(apiPath('/auth/me'));
-        if (resp && resp.id) {
-          const userWithCoins = {
-            ...resp,
-            coins: resp.tokens ?? 0,
-          };
-          setUser(userWithCoins);
-          storeAuthState('student', null, userWithCoins);
-          console.log('[STUDENT NAVBAR] ✅ Fetched student from API:', {
-            userId: userWithCoins.id,
-            coins: userWithCoins.coins,
-          });
+      // Only set to null if we don't already have a user
+      setUser((prevUser: any) => {
+        if (!prevUser) {
+          return null;
         }
-      } catch (err) {
-        console.error('[STUDENT NAVBAR] Failed to fetch from API:', err);
-      }
+        return prevUser; // Keep existing user
+      });
     }
-  }, [location.pathname]);
+  }, [location.pathname]); // ✅ Remove user from dependencies to prevent infinite loop
 
   // Load on mount and location change
   useEffect(() => {
@@ -103,15 +103,7 @@ export default function StudentNavbar({
     };
   }, [loadStudentUser]);
 
-  // Log whenever user changes
-  useEffect(() => {
-    if (user) {
-      console.log('[STUDENT NAVBAR] 🪙 Displaying student coins:', {
-        userId: user.id,
-        coins: user.coins,
-      });
-    }
-  }, [user]);
+  // Removed excessive logging to prevent console flooding
 
   const handleLogout = useCallback(async () => {
     try {
@@ -166,11 +158,18 @@ export default function StudentNavbar({
             sx={{ bgcolor: "primary.main", cursor: "pointer" }} 
             onClick={handleDashboardClick}
           >
-            MT
+            {user?.username?.[0]?.toUpperCase() || user?.name?.[0]?.toUpperCase() || 'MT'}
           </Avatar>
-          <Typography variant="h6" fontWeight="bold" color="text.primary">
-            MicroTutor
-          </Typography>
+          <Box>
+            <Typography variant="h6" fontWeight="bold" color="text.primary">
+              MicroTutor
+            </Typography>
+            {user?.username && (
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1 }}>
+                {user.username}
+              </Typography>
+            )}
+          </Box>
         </Box>
 
         <Box display="flex" gap={1} alignItems="center">

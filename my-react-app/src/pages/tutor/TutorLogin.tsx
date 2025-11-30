@@ -11,7 +11,7 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
+import { storeAuthState, markActiveUserType, getAuthStateForType, clearAuthState } from "../../utils/authStorage";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
 
@@ -54,11 +54,44 @@ export default function TutorLogin() {
         ...user,
         userType: resolvedRole,
         name: user.name || user.username,
+        username: user.username || user.name,
+        tokens: user.tokens ?? (resolvedRole === 'student' ? 100 : 0),
+        coins: user.tokens ?? (resolvedRole === 'student' ? 100 : 0),
       };
 
-      // Store auth state
+      // ✅ CRITICAL: Check if another tutor is already logged in before storing
+      const existingTutor = getAuthStateForType("tutor").user;
+      if (existingTutor && existingTutor.id && existingTutor.id !== normalizedUser.id) {
+        console.error('[TUTOR LOGIN] 🚨 Another tutor is already logged in in another tab!', {
+          existingTutorId: existingTutor.id,
+          existingTutorUsername: existingTutor.username,
+          newTutorId: normalizedUser.id,
+          newTutorUsername: normalizedUser.username,
+          action: 'Clearing old tutor data before storing new tutor'
+        });
+        // Clear the old tutor's data first (this will trigger storage event in other tabs)
+        clearAuthState("tutor");
+        // Small delay to ensure storage event is processed
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      // Store auth state (this will also check for ID mismatch internally)
       storeAuthState("tutor", null, normalizedUser);
       markActiveUserType("tutor");
+      
+      console.log('[TUTOR LOGIN] ✅ Stored tutor user after verification:', {
+        id: normalizedUser.id,
+        username: normalizedUser.username,
+        tokens: normalizedUser.tokens,
+        coins: normalizedUser.coins,
+      });
+      
+      console.log('[TUTOR LOGIN] ✅ Stored tutor user:', {
+        id: normalizedUser.id,
+        username: normalizedUser.username,
+        tokens: normalizedUser.tokens,
+        coins: normalizedUser.coins,
+      });
 
       // Navigate based on role
       if (resolvedRole === "student") {

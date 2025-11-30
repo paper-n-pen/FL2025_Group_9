@@ -103,6 +103,13 @@ export default function AppLayout() {
   }, []);
 
   useEffect(() => {
+    // Don't redirect if we're on a session route - SessionRoom will handle auth via location.state
+    const isSessionRoute = location.pathname.startsWith("/session/");
+    if (isSessionRoute) {
+      // SessionRoom handles its own authentication via location.state
+      return;
+    }
+    
     if (!loading && !user) {
       const wantsTutorArea = location.pathname.startsWith("/tutor");
       const redirectTo = wantsTutorArea ? "/tutor/login" : "/student/login";

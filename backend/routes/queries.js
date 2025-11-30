@@ -26,8 +26,7 @@ const mapQueryRow = (row, overrides = {}) => ({
 // POST /queries/post
 // ------------------------
 router.post('/post', async (req, res) => {
-  console.log('🔥🔥🔥 HIT /session/:sessionId/start (LATEST VERSION) 🔥🔥🔥');
-  const sessionIdNumber = Number(req.params.sessionId);
+  console.log('[QUERY POST] New query being posted');
 
   let { subject, subtopic, query, studentId } = req.body;
 
@@ -47,12 +46,32 @@ router.post('/post', async (req, res) => {
 
   try {
     const studentResult = await pool.query(
-      'SELECT id, username FROM users WHERE id = $1',
+      'SELECT id, username, user_type FROM users WHERE id = $1',
       [studentIdNumber]
     );
     if (studentResult.rows.length === 0) {
       return res.status(404).json({ message: 'Student not found' });
     }
+    
+    // Verify this is actually a student (case-insensitive check)
+    const userType = String(studentResult.rows[0].user_type || '').toLowerCase();
+    if (userType !== 'student') {
+      console.error('[QUERY POST] ERROR: User is not a student', {
+        userId: studentIdNumber,
+        userType: studentResult.rows[0].user_type,
+        userTypeLower: userType,
+        username: studentResult.rows[0].username
+      });
+      return res.status(400).json({ 
+        message: `Only students can post queries. Your account type is: ${studentResult.rows[0].user_type || 'unknown'}` 
+      });
+    }
+    
+    console.log('[QUERY POST] Student verified:', {
+      studentId: studentIdNumber,
+      username: studentResult.rows[0].username,
+      userType: studentResult.rows[0].user_type
+    });
 
     const insertResult = await pool.query(
       `INSERT INTO queries (subject, subtopic, query_text, student_id, status)
@@ -88,8 +107,16 @@ router.post('/post', async (req, res) => {
       queryId: newQuery.id.toString()
     });
   } catch (error) {
-    console.error('Error posting query:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('[QUERY POST] ERROR:', error);
+    console.error('[QUERY POST] Error details:', {
+      message: error.message,
+      stack: error.stack,
+      body: req.body
+    });
+    res.status(500).json({ 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -204,9 +231,10 @@ router.get('/tutor/:tutorId/accepted-queries', async (req, res) => {
         ? Number(tutorRow.rate_per_10_min)
         : null;
 
-    // Show queries where this tutor has accepted (PENDING or SELECTED status)
+    // Show queries where this tutor has accepted (PENDING, SELECTED, or EXPIRED status)
     // PENDING = waiting for student to choose
     // SELECTED = student chose this tutor, can start session
+    // EXPIRED = another tutor was selected, show with dismiss option
     const queriesResult = await pool.query(
       `SELECT q.id,
               q.subject,
@@ -231,7 +259,7 @@ router.get('/tutor/:tutorId/accepted-queries', async (req, res) => {
          ORDER BY start_time DESC
             LIMIT 1
     ) latest_session ON TRUE
-        WHERE qa.status IN ('PENDING', 'SELECTED')
+        WHERE qa.status IN ('PENDING', 'SELECTED', 'EXPIRED')
      ORDER BY COALESCE(q.updated_at, q.created_at) DESC`,
       [tutorId]
     );
@@ -962,11 +990,10 @@ router.post('/session/end', async (req, res) => {
       [sessionIdNumber]
     );
 
+    // Delete the query from database when session is completely ended
+    // Related records (sessions, query_acceptances, query_declines) will be cascade deleted
     await client.query(
-      `UPDATE queries
-          SET status = 'completed',
-              updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1`,
+      `DELETE FROM queries WHERE id = $1`,
       [sessionRow.query_id]
     );
 
@@ -1286,7 +1313,7 @@ router.post('/student/select-tutor', async (req, res) => {
 
     // Verify query belongs to student
     const queryResult = await client.query(
-      `SELECT id, student_id, status
+      `SELECT id, student_id, status, subject, subtopic
          FROM queries
         WHERE id = $1 AND student_id = $2
         FOR UPDATE`,
@@ -1352,21 +1379,21 @@ router.post('/student/select-tutor', async (req, res) => {
       [queryIdNumber, tutorIdNumber]
     );
 
-    // Reject all other tutor acceptances for this query
+    // Expire all other tutor acceptances for this query (set status to EXPIRED)
     await client.query(
       `UPDATE query_acceptances
-          SET status = 'REJECTED'
+          SET status = 'EXPIRED'
         WHERE query_id = $1 AND tutor_id != $2 AND status = 'PENDING'`,
       [queryIdNumber, tutorIdNumber]
     );
 
-    // Get all rejected tutor IDs for notifications
-    const rejectedTutorsResult = await client.query(
+    // Get all expired tutor IDs for notifications
+    const expiredTutorsResult = await client.query(
       `SELECT tutor_id FROM query_acceptances
-        WHERE query_id = $1 AND status = 'REJECTED' AND tutor_id != $2`,
+        WHERE query_id = $1 AND status = 'EXPIRED' AND tutor_id != $2`,
       [queryIdNumber, tutorIdNumber]
     );
-    const rejectedTutorIds = rejectedTutorsResult.rows.map(row => row.tutor_id);
+    const expiredTutorIds = expiredTutorsResult.rows.map(row => row.tutor_id);
 
     await client.query('COMMIT');
 
@@ -1383,11 +1410,11 @@ router.post('/student/select-tutor', async (req, res) => {
         querySubtopic: queryRow.subtopic || ''
       });
 
-      // Notify rejected tutors - they were not selected
-      rejectedTutorIds.forEach(rejectedTutorId => {
-        io.to(`tutor-${rejectedTutorId}`).emit('query-not-selected', {
+      // Notify expired tutors - their acceptance has expired
+      expiredTutorIds.forEach(expiredTutorId => {
+        io.to(`tutor-${expiredTutorId}`).emit('query-expired', {
           queryId: queryIdNumber.toString(),
-          message: 'Another tutor was selected for this query.',
+          message: 'This query has expired. Another tutor was selected.',
           querySubject: queryRow.subject || '',
           querySubtopic: queryRow.subtopic || ''
         });
@@ -1414,10 +1441,62 @@ router.post('/student/select-tutor', async (req, res) => {
     });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error selecting tutor:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('[SELECT TUTOR] ERROR:', error);
+    console.error('[SELECT TUTOR] Error details:', {
+      message: error.message,
+      stack: error.stack,
+      queryId: queryIdNumber,
+      tutorId: tutorIdNumber,
+      studentId: studentIdNumber
+    });
+    res.status(500).json({ 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   } finally {
     client.release();
+  }
+});
+
+// ------------------------
+// POST /queries/tutor/dismiss-expired
+// Dismiss an expired query from tutor dashboard
+// ------------------------
+router.post('/tutor/dismiss-expired', async (req, res) => {
+  const { queryId, tutorId } = req.body;
+
+  const queryIdNumber = Number(queryId);
+  const tutorIdNumber = Number(tutorId);
+
+  if (!Number.isInteger(queryIdNumber) || !Number.isInteger(tutorIdNumber)) {
+    return res.status(400).json({ ok: false, message: 'Invalid queryId or tutorId' });
+  }
+
+  try {
+    // Verify this tutor has an EXPIRED acceptance for this query
+    const acceptanceResult = await pool.query(
+      `SELECT status FROM query_acceptances
+        WHERE query_id = $1 AND tutor_id = $2 AND status = 'EXPIRED'`,
+      [queryIdNumber, tutorIdNumber]
+    );
+
+    if (acceptanceResult.rows.length === 0) {
+      return res.status(404).json({ ok: false, message: 'Expired acceptance not found' });
+    }
+
+    // Delete the expired acceptance (dismiss it)
+    await pool.query(
+      `DELETE FROM query_acceptances
+        WHERE query_id = $1 AND tutor_id = $2 AND status = 'EXPIRED'`,
+      [queryIdNumber, tutorIdNumber]
+    );
+
+    console.log('Tutor dismissed expired query:', { queryId: queryIdNumber, tutorId: tutorIdNumber });
+
+    res.json({ ok: true, message: 'Expired query dismissed successfully' });
+  } catch (error) {
+    console.error('Error dismissing expired query:', error);
+    res.status(500).json({ ok: false, message: 'Server error' });
   }
 });
 

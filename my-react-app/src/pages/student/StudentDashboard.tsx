@@ -27,6 +27,7 @@ import {
   markActiveUserType,
   clearAuthState,
   storeAuthState,
+  getAuthStateForType,
 } from "../../utils/authStorage";
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
@@ -129,24 +130,74 @@ export default function StudentDashboard() {
     },
   ];
 
-  // 🔐 Verify session, persist to authStorage so SessionRoom can resolve user.
+  // 🔐 Verify session - use localStorage as PRIMARY source of truth
+  // ✅ CRITICAL: Don't call /api/me if localStorage already has student data
+  // This prevents cookie conflicts when multiple users are logged in
   useEffect(() => {
     let cancelled = false;
+    
+    // ✅ CRITICAL: Check localStorage FIRST
+    const existingStudent = getAuthStateForType("student").user;
+    if (existingStudent && existingStudent.id) {
+      console.log('[STUDENT DASHBOARD] ✅ Using existing student from localStorage (PRIMARY SOURCE):', {
+        id: existingStudent.id,
+        username: existingStudent.username,
+        tokens: existingStudent.tokens,
+        action: 'NOT calling /api/me to avoid cookie conflicts'
+      });
+      
+      if (!cancelled) {
+        const u = { 
+          ...existingStudent, 
+          userType: existingStudent.userType || "student",
+          username: existingStudent.username || existingStudent.name,
+          tokens: existingStudent.tokens ?? 100,
+          coins: existingStudent.tokens ?? existingStudent.coins ?? 100,
+        };
+        setStudentUser(u);
+        markActiveUserType("student");
+        // Don't overwrite - just use what we have
+      }
+      return;
+    }
+    
+    // Only call /api/me if localStorage is completely empty (first time login)
     (async () => {
       try {
+        console.log('[STUDENT DASHBOARD] No student in localStorage, calling /api/me...');
         const data = await api.get(apiPath("/me"));
         const fetchedUser = data?.user;
         if (!cancelled && fetchedUser) {
-          const u = { ...fetchedUser, userType: fetchedUser.role || "student" };
+          const u = { 
+            ...fetchedUser, 
+            userType: fetchedUser.role || fetchedUser.userType || "student",
+            username: fetchedUser.username || fetchedUser.name,
+            tokens: fetchedUser.tokens ?? 100,
+            coins: fetchedUser.tokens ?? 100,
+          };
           setStudentUser(u);
           markActiveUserType("student");
-          // ✅ Persist (token can be null; backend sets cookie, that's fine)
           storeAuthState("student", null, u);
+          console.log('[STUDENT DASHBOARD] ✅ Fetched student from /api/me (first time):', {
+            id: u.id,
+            username: u.username,
+            tokens: u.tokens,
+          });
         } else if (!cancelled) {
           navigate("/student/login", { replace: true });
         }
-      } catch {
-        if (!cancelled) navigate("/student/login", { replace: true });
+      } catch (error: any) {
+        const message = String(error?.message ?? "").toLowerCase();
+        const unauthorized = message.includes("401") || message.includes("unauthorized");
+        if (!cancelled) {
+          if (unauthorized) {
+            clearAuthState("student");
+            navigate("/student/login", { replace: true });
+          } else {
+            console.error('[STUDENT DASHBOARD] Error fetching student:', error);
+            // Don't navigate on other errors - just log
+          }
+        }
       }
     })();
     return () => {
@@ -251,20 +302,30 @@ export default function StudentDashboard() {
     }
     setLoading(true);
     try {
+      console.log('[STUDENT DASHBOARD] Posting query:', {
+        subject: selectedSubject,
+        subtopic: selectedSubtopic,
+        query: query.trim(),
+        studentId: studentUser.id,
+        studentUser: studentUser
+      });
       const response = await api.post(apiPath("/queries/post"), {
         subject: selectedSubject,
         subtopic: selectedSubtopic,
         query: query.trim(),
         studentId: studentUser.id,
       });
+      console.log('[STUDENT DASHBOARD] Query post response:', response);
       if (response?.message === "Query posted successfully") {
         pushSnack("Query posted! Tutors will be notified.", "success");
         setQuery("");
         setSelectedSubject("");
         setSelectedSubtopic("");
       }
-    } catch {
-      pushSnack("Failed to post query. Please try again.", "error");
+    } catch (error: any) {
+      console.error('[STUDENT DASHBOARD] Error posting query:', error);
+      const errorMsg = error?.response?.data?.message || error?.message || "Failed to post query. Please try again.";
+      pushSnack(errorMsg, "error");
     } finally {
       setLoading(false);
     }
@@ -327,8 +388,8 @@ export default function StudentDashboard() {
           res.data
         );
         alert(res.data?.message || 'Failed to enter session (coin error)');
-      return;
-    }
+        return;
+      }
 
       // ✅ STEP 2: Fetch BOTH student and tutor coins in parallel using TWO separate GET endpoints
       // This ensures both APIs are called at EXACTLY the same time
@@ -354,11 +415,26 @@ export default function StudentDashboard() {
       const startTime = performance.now();
       
       // Create both fetch promises - they start IMMEDIATELY at the same time
+      // Add error handling to ensure navigation happens even if coin fetching fails
       const fetchOptions = { credentials: 'include' as RequestCredentials, method: 'GET' as const };
-      const [studentResult, tutorResult] = await Promise.all([
-        fetch(studentPath, fetchOptions).then(r => r.json()),
-        fetch(tutorPath, fetchOptions).then(r => r.json()),
-      ]);
+      let studentResult: any = null;
+      let tutorResult: any = null;
+      
+      try {
+        const [studentResponse, tutorResponse] = await Promise.all([
+          fetch(studentPath, fetchOptions),
+          fetch(tutorPath, fetchOptions),
+        ]);
+        
+        // Parse JSON responses
+        studentResult = await studentResponse.json().catch(() => ({ ok: false }));
+        tutorResult = await tutorResponse.json().catch(() => ({ ok: false }));
+      } catch (fetchError) {
+        console.error('[🪙 COINS SYNC] ⚠️ Error fetching coins, but continuing with navigation:', fetchError);
+        // Continue with navigation even if coin fetching fails
+        studentResult = { ok: false };
+        tutorResult = { ok: false };
+      }
       
       const endTime = performance.now();
       console.log('[🪙 COINS SYNC] ✅ Both GET endpoints completed in parallel, time:', endTime - startTime, 'ms');
@@ -370,7 +446,9 @@ export default function StudentDashboard() {
       });
 
       // Update student coins from GET response
+      let finalStudentCoins = studentUser.tokens || studentUser.coins || 0;
       if (studentResult && studentResult.ok && studentResult.coins !== undefined) {
+        finalStudentCoins = studentResult.coins;
         const updatedStudentUser = {
           ...studentUser,
           userType: 'student',
@@ -386,27 +464,42 @@ export default function StudentDashboard() {
           coins: studentResult.coins,
         });
       } else {
-        console.warn('[🪙 COINS SYNC] ⚠️ Student coins GET endpoint did not return valid data');
+        console.warn('[🪙 COINS SYNC] ⚠️ Student coins GET endpoint did not return valid data, using current coins:', finalStudentCoins);
       }
 
       // Update tutor coins from GET response
-      if (tutorResult && tutorResult.ok && tutorResult.coins !== undefined) {
-        const tutorData = {
-          id: tutorId,
-          userType: 'tutor',
-          tokens: tutorResult.coins,
-          coins: tutorResult.coins,
-        };
-        
-        // ✅ Use storeAuthState instead of direct localStorage.setItem for consistency
-        // This ensures the data is stored in the same format as the rest of the app
-        storeAuthState('tutor', null, tutorData);
-        
-        console.log('[🪙 COINS SYNC] ✅ Tutor coins updated from GET endpoint:', {
-          tutorId,
-          coins: tutorResult.coins,
-          stored: true,
-        });
+      // ⚠️ IMPORTANT: Only update tutor localStorage if that tutor is currently logged in
+      // We don't want to overwrite another tutor's data
+      if (tutorResult && tutorResult.ok && tutorResult.coins !== undefined && tutorId) {
+        // Check if there's a tutor currently logged in
+        const currentTutorUserJson = localStorage.getItem('tutorUser');
+        if (currentTutorUserJson) {
+          try {
+            const currentTutor = JSON.parse(currentTutorUserJson);
+            // Only update if this tutor is the one in the session
+            if (currentTutor.id === tutorId) {
+              const updatedTutor = {
+                ...currentTutor,
+                tokens: tutorResult.coins,
+                coins: tutorResult.coins,
+              };
+              storeAuthState('tutor', null, updatedTutor);
+              console.log('[🪙 COINS SYNC] ✅ Tutor coins updated (matched logged-in tutor):', {
+                tutorId,
+                coins: tutorResult.coins,
+              });
+            } else {
+              console.log('[🪙 COINS SYNC] ⚠️ Skipping tutor coin update - different tutor logged in:', {
+                sessionTutorId: tutorId,
+                loggedInTutorId: currentTutor.id,
+              });
+            }
+          } catch (e) {
+            console.error('[🪙 COINS SYNC] Failed to parse current tutor user:', e);
+          }
+        } else {
+          console.log('[🪙 COINS SYNC] ⚠️ No tutor logged in, skipping tutor coin update');
+        }
       } else {
         console.warn('[🪙 COINS SYNC] ⚠️ Tutor coins GET endpoint did not return valid data');
       }
@@ -447,14 +540,27 @@ export default function StudentDashboard() {
       const finalStudentUser = {
         ...studentUser,
         userType: 'student',
-        tokens: studentResult?.coins !== undefined ? studentResult.coins : studentUser.tokens,
-        coins: studentResult?.coins !== undefined ? studentResult.coins : studentUser.tokens,
+        tokens: finalStudentCoins,
+        coins: finalStudentCoins,
       };
       
-      navigate(`/session/${sessionId}`, {
+      console.log('[🪙 COINS ENTER] ✅ Preparing to navigate to session room:', {
+        sessionId,
+        studentId: finalStudentUser.id,
+        coins: finalStudentCoins,
+        userData: finalStudentUser,
+      });
+      
+      // Navigate immediately - React Router handles state updates
+      const targetPath = `/session/${sessionId}`;
+      console.log('[🪙 COINS ENTER] 🚀 Calling navigate with path:', targetPath);
+      
+      navigate(targetPath, {
         state: { userType: "student", user: finalStudentUser },
         replace: false,
       });
+      
+      console.log('[🪙 COINS ENTER] ✅ Navigate function called successfully');
     } catch (err: any) {
       console.error('[🪙 COINS ENTER ERROR] Exception in handleEnterSession', err);
       console.error('[🪙 COINS ENTER ERROR] Error details:', {
@@ -697,9 +803,19 @@ export default function StudentDashboard() {
                 </Box>
               ) : (
                 <Stack spacing={3}>
-                  {queriesWithTutors.map((queryItem: any) => {
-                    // Filter out rejected tutors
-                    const validTutors = (queryItem.tutors || []).filter((t: any) => t.acceptanceStatus !== 'REJECTED');
+                  {[...queriesWithTutors]
+                    .sort((a: any, b: any) => {
+                      // Reverse chronological order (newest first)
+                      // Use createdAt if available, otherwise fallback to queryId (higher ID = newer)
+                      const dateA = a.createdAt ? new Date(a.createdAt).getTime() : (Number(a.queryId) || 0);
+                      const dateB = b.createdAt ? new Date(b.createdAt).getTime() : (Number(b.queryId) || 0);
+                      return dateB - dateA;
+                    })
+                    .map((queryItem: any) => {
+                    // Filter out rejected and expired tutors (auto-remove expired)
+                    const validTutors = (queryItem.tutors || []).filter((t: any) => 
+                      t.acceptanceStatus !== 'REJECTED' && t.acceptanceStatus !== 'EXPIRED'
+                    );
                     if (validTutors.length === 0) return null;
                     
                     const isAssigned = queryItem.status === 'ASSIGNED' || queryItem.studentSelectedTutorId;

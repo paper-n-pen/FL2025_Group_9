@@ -289,6 +289,10 @@ router.post("/login", async (req, res) => {
 // -----------------------------
 router.get("/me", async (req, res) => {
   try {
+    // ✅ CRITICAL FIX: Check expected user ID FIRST (from header or query param)
+    // This prevents cookie conflicts when multiple tutors are logged in different tabs
+    const expectedUserId = req.headers['x-expected-user-id'] || req.query.expectedUserId;
+    
     // Support both 'token' and legacy 'authToken'
     const token = req.cookies?.token || req.cookies?.authToken;
     if (!token) {
@@ -300,6 +304,29 @@ router.get("/me", async (req, res) => {
       decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-secret-change-me");
     } catch (jwtError) {
       return res.status(401).json({ error: "Invalid or expired token" });
+    }
+
+    // ✅ CRITICAL: If frontend expects a specific user ID, verify cookie matches
+    if (expectedUserId) {
+      const expectedId = Number(expectedUserId);
+      const cookieUserId = Number(decoded.id);
+      
+      // If cookie user doesn't match expected user, return 403 Forbidden
+      // This tells frontend to use localStorage/sessionStorage data instead
+      if (!Number.isNaN(expectedId) && !Number.isNaN(cookieUserId) && expectedId !== cookieUserId) {
+        console.log('[AUTH] GET /me - Cookie user mismatch, rejecting request:', {
+          expectedUserId: expectedId,
+          cookieUserId: cookieUserId,
+          action: 'Returning 403 to prevent data mixing'
+        });
+        return res.status(403).json({ 
+          error: "User mismatch",
+          code: "USER_MISMATCH",
+          message: "Cookie user does not match expected user. Use localStorage data instead.",
+          expectedUserId: expectedId,
+          cookieUserId: cookieUserId
+        });
+      }
     }
 
     const result = await pool.query(

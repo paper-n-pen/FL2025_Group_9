@@ -54,10 +54,20 @@ export default function StudentLogin() {
         ...user,
         userType: resolvedRole,
         name: user.name || user.username,
+        username: user.username || user.name,
+        tokens: user.tokens ?? (resolvedRole === 'student' ? 100 : 0),
+        coins: user.tokens ?? (resolvedRole === 'student' ? 100 : 0),
       };
 
       storeAuthState("student", null, normalizedUser);
       markActiveUserType("student");
+      
+      console.log('[STUDENT LOGIN] ✅ Stored student user:', {
+        id: normalizedUser.id,
+        username: normalizedUser.username,
+        tokens: normalizedUser.tokens,
+        coins: normalizedUser.coins,
+      });
 
       if (resolvedRole === "tutor") {
         navigate("/tutor/dashboard", { replace: true });
