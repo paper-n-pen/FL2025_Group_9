@@ -235,6 +235,7 @@ router.get('/tutor/:tutorId/accepted-queries', async (req, res) => {
     // PENDING = waiting for student to choose
     // SELECTED = student chose this tutor, can start session
     // EXPIRED = another tutor was selected, show with dismiss option
+    // ✅ Filter out queries where session has ended (session_status = 'ended')
     const queriesResult = await pool.query(
       `SELECT q.id,
               q.subject,
@@ -260,6 +261,7 @@ router.get('/tutor/:tutorId/accepted-queries', async (req, res) => {
             LIMIT 1
     ) latest_session ON TRUE
         WHERE qa.status IN ('PENDING', 'SELECTED', 'EXPIRED')
+          AND (latest_session.status IS NULL OR latest_session.status != 'ended')
      ORDER BY COALESCE(q.updated_at, q.created_at) DESC`,
       [tutorId]
     );
@@ -957,7 +959,7 @@ router.post('/session/end', async (req, res) => {
     await client.query('BEGIN');
 
     const sessionResult = await client.query(
-      `SELECT id, query_id, status
+      `SELECT id, query_id, status, student_id, tutor_id
          FROM sessions
         WHERE id = $1
         FOR UPDATE`,
@@ -985,17 +987,20 @@ router.post('/session/end', async (req, res) => {
       return res.json({ message: 'Session already ended' });
     }
 
+    // ✅ CRITICAL: Get studentId and tutorId BEFORE any deletion
+    const studentId = sessionRow.student_id;
+    const tutorId = sessionRow.tutor_id;
+
     await client.query(
       `UPDATE sessions SET status = 'ended' WHERE id = $1`,
       [sessionIdNumber]
     );
 
-    // Delete the query from database when session is completely ended
-    // Related records (sessions, query_acceptances, query_declines) will be cascade deleted
-    await client.query(
-      `DELETE FROM queries WHERE id = $1`,
-      [sessionRow.query_id]
-    );
+    // ✅ CRITICAL: DO NOT delete query here - delete it AFTER rating is submitted
+    // This ensures:
+    // 1. Rating page can load (needs session which needs query)
+    // 2. Coin updates can work (needs session to get participants)
+    // Query will be deleted in the rating endpoint after rating is submitted
 
     await client.query('COMMIT');
 
@@ -1004,8 +1009,8 @@ router.post('/session/end', async (req, res) => {
         sessionId: sessionIdNumber.toString(),
         endedBy: endedByNumber.toString(),
         queryId: sessionRow.query_id ? sessionRow.query_id.toString() : null,
-        tutorId: queryInfo?.accepted_tutor_id ? queryInfo.accepted_tutor_id.toString() : null,
-        studentId: queryInfo?.student_id ? queryInfo.student_id.toString() : null
+        tutorId: tutorId ? tutorId.toString() : (queryInfo?.accepted_tutor_id ? queryInfo.accepted_tutor_id.toString() : null),
+        studentId: studentId ? studentId.toString() : (queryInfo?.student_id ? queryInfo.student_id.toString() : null)
       };
 
       io.to(`session-${sessionIdNumber}`).emit('session-ended', payload);
@@ -1073,6 +1078,7 @@ router.get('/session/:sessionId/summary', async (req, res) => {
   }
 
   try {
+    // Query should still exist since we only delete it AFTER rating is submitted
     const { rows } = await pool.query(
       `SELECT s.id,
               s.status,
@@ -1145,6 +1151,7 @@ router.post('/session/:sessionId/rate', async (req, res) => {
     const sessionResult = await client.query(
       `SELECT s.id,
               s.student_id,
+              s.tutor_id,
               s.status,
               s.rating
          FROM sessions s
@@ -1169,12 +1176,70 @@ router.post('/session/:sessionId/rate', async (req, res) => {
       return res.status(400).json({ message: 'Session must be ended before rating' });
     }
 
+    // Update session rating
     await client.query(
       `UPDATE sessions
           SET rating = $1
         WHERE id = $2`,
       [ratingNumber, sessionIdNumber]
     );
+
+    // ✅ Calculate and update tutor's average rating in database using incremental update
+    // Formula: newAvg = (oldAvg * oldCount + newRating) / newCount
+    const tutorId = sessionRow.tutor_id;
+    if (tutorId) {
+      // Fetch current tutor rating data
+      const tutorResult = await client.query(
+        `SELECT average_rating, review_count
+           FROM users
+          WHERE id = $1`,
+        [tutorId]
+      );
+
+      if (tutorResult.rows.length === 0) {
+        console.error('Tutor not found for rating update:', tutorId);
+      } else {
+        const tutorRow = tutorResult.rows[0];
+        const oldAvg = tutorRow.average_rating ? Number(tutorRow.average_rating) : 0;
+        const oldCount = tutorRow.review_count ? Number(tutorRow.review_count) : 0;
+        const newCount = oldCount + 1;
+        const newAvg = (oldAvg * oldCount + ratingNumber) / newCount;
+
+        // ✅ CRITICAL: Save average rating and review count to users table in database
+        await client.query(
+          `UPDATE users 
+              SET average_rating = $1,
+                  review_count = $2,
+                  updated_at = CURRENT_TIMESTAMP
+            WHERE id = $3`,
+          [newAvg, newCount, tutorId]
+        );
+        console.log('Tutor average rating and review count updated incrementally:', {
+          tutorId,
+          newRating: ratingNumber,
+          oldAvg: oldAvg.toFixed(2),
+          oldCount,
+          newAvg: newAvg.toFixed(2),
+          newCount
+        });
+      }
+    }
+
+    // ✅ CRITICAL: Delete the query AFTER rating is submitted
+    // This ensures rating page and coin updates work before deletion
+    const queryIdResult = await client.query(
+      `SELECT query_id FROM sessions WHERE id = $1`,
+      [sessionIdNumber]
+    );
+    
+    if (queryIdResult.rows.length > 0 && queryIdResult.rows[0].query_id) {
+      const queryId = queryIdResult.rows[0].query_id;
+      await client.query(
+        `DELETE FROM queries WHERE id = $1`,
+        [queryId]
+      );
+      console.log('Query deleted after rating submission:', { queryId, sessionId: sessionIdNumber });
+    }
 
     await client.query('COMMIT');
     console.log('Session rated:', { sessionId: sessionIdNumber, studentId: studentIdNumber, rating: ratingNumber });
@@ -1200,6 +1265,8 @@ router.get('/student/:studentId/responses', async (req, res) => {
 
   try {
     // Get all tutors who accepted queries for this student
+    // ✅ Filter out queries where session has ended (session_status = 'ended')
+    console.log(`[STUDENT RESPONSES] Fetching responses for studentId: ${studentId}`);
     const result = await pool.query(
       `SELECT q.id AS query_id,
               q.subject,
@@ -1214,12 +1281,12 @@ router.get('/student/:studentId/responses', async (req, res) => {
               t.bio AS tutor_bio,
               t.education AS tutor_education,
               t.rate_per_10_min,
+              t.average_rating AS tutor_avg_rating,
+              t.review_count AS tutor_ratings_count,
               qa.accepted_at AS tutor_accepted_at,
               qa.status AS acceptance_status,
               s.id AS session_id,
-              s.status AS session_status,
-              rs.avg_rating AS tutor_avg_rating,
-              rs.ratings_count AS tutor_ratings_count
+              s.status AS session_status
          FROM queries q
          JOIN query_acceptances qa ON qa.query_id = q.id
          JOIN users t ON t.id = qa.tutor_id
@@ -1230,14 +1297,8 @@ router.get('/student/:studentId/responses', async (req, res) => {
          ORDER BY start_time DESC
             LIMIT 1
     ) s ON TRUE
-    LEFT JOIN LATERAL (
-           SELECT AVG(rating) AS avg_rating,
-                  COUNT(rating) AS ratings_count
-             FROM sessions
-            WHERE tutor_id = qa.tutor_id
-              AND rating IS NOT NULL
-    ) rs ON TRUE
         WHERE q.student_id = $1
+          AND (s.status IS NULL OR s.status != 'ended')
      ORDER BY q.id DESC, qa.accepted_at DESC`,
       [studentId]
     );
@@ -1260,6 +1321,13 @@ router.get('/student/:studentId/responses', async (req, res) => {
         };
       }
       
+      // ✅ Calculate average rating: (sum of all ratings) / (number of ratings)
+      // If avg_rating is null, it means no ratings yet
+      const avgRating = row.tutor_avg_rating !== null && row.tutor_avg_rating !== undefined
+        ? Number(parseFloat(row.tutor_avg_rating).toFixed(2))
+        : null;
+      const ratingsCount = row.tutor_ratings_count ? Number(row.tutor_ratings_count) : 0;
+      
       responsesByQuery[queryId].tutors.push({
         tutorId: row.tutor_id,
         tutorName: row.tutor_name,
@@ -1272,11 +1340,8 @@ router.get('/student/:studentId/responses', async (req, res) => {
         tutorAcceptedAt: row.tutor_accepted_at,
         sessionId: row.session_id ? row.session_id.toString() : null,
         sessionStatus: row.session_status || null,
-        tutorAverageRating:
-          row.tutor_avg_rating !== null && row.tutor_avg_rating !== undefined
-            ? Number(row.tutor_avg_rating)
-            : null,
-        tutorRatingsCount: row.tutor_ratings_count ? Number(row.tutor_ratings_count) : 0,
+        tutorAverageRating: avgRating,
+        tutorRatingsCount: ratingsCount,
         acceptanceStatus: row.acceptance_status || 'PENDING',
         isSelected: row.acceptance_status === 'SELECTED' || row.student_selected_tutor_id === row.tutor_id
       });
@@ -1285,9 +1350,11 @@ router.get('/student/:studentId/responses', async (req, res) => {
     // Convert to array format
     const responses = Object.values(responsesByQuery);
 
+    console.log(`[STUDENT RESPONSES] Returning ${responses.length} queries with tutors for studentId: ${studentId}`);
     res.json(responses);
   } catch (error) {
     console.error('Error fetching student responses:', error);
+    console.error('Error details:', error.message, error.stack);
     res.status(500).json({ message: 'Server error' });
   }
 });

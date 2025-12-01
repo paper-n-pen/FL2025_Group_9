@@ -207,9 +207,14 @@ export default function StudentDashboard() {
 
   const fetchTutorResponses = useCallback(async () => {
     try {
-      if (!studentUser?.id) return;
+      if (!studentUser?.id) {
+        console.log('[STUDENT DASHBOARD] fetchTutorResponses: No studentUser.id, skipping');
+        return;
+      }
+      console.log('[STUDENT DASHBOARD] fetchTutorResponses: Fetching responses for studentId:', studentUser.id);
       const data = await api.get(apiPath(`/queries/student/${studentUser.id}/responses`));
       const list = Array.isArray(data) ? data : [];
+      console.log('[STUDENT DASHBOARD] fetchTutorResponses: Received', list.length, 'queries with tutors');
       
       // Keep queries grouped with their tutors (for better UI)
       setQueriesWithTutors(list);
@@ -243,8 +248,12 @@ export default function StudentDashboard() {
     if (studentUser?.id) socket.emit("join-student-room", studentUser.id);
 
     const onTutorAccepted = (data: any) => {
+      console.log('[STUDENT DASHBOARD] 🔔 tutor-accepted-query event received:', data);
       pushSnack(`${data.tutorName} accepted your query!`, "success");
-      fetchTutorResponses();
+      // Add a small delay to ensure backend has processed the acceptance
+      setTimeout(() => {
+        fetchTutorResponses();
+      }, 100);
     };
 
     const onTutorConfirmed = (data: any) => {
@@ -257,15 +266,23 @@ export default function StudentDashboard() {
       fetchTutorResponses();
     };
 
+    const onSessionEnded = (data: any) => {
+      console.log("Session ended, refreshing queries:", data);
+      // Refresh queries to remove ended sessions
+      fetchTutorResponses();
+    };
+
     socket.on("tutor-accepted-query", onTutorAccepted);
     socket.on("tutor-confirmed", onTutorConfirmed);
     socket.on("session-ready", onSessionReady);
+    socket.on("session-ended", onSessionEnded);
 
     return () => {
       if (studentUser?.id) socket.emit("leave-student-room", studentUser.id);
       socket.off("tutor-accepted-query", onTutorAccepted);
       socket.off("tutor-confirmed", onTutorConfirmed);
       socket.off("session-ready", onSessionReady);
+      socket.off("session-ended", onSessionEnded);
     };
   }, [fetchTutorResponses, studentUser?.id]);
 
@@ -606,7 +623,7 @@ export default function StudentDashboard() {
         flexDirection: "column",
         justifyContent: "flex-start",
         alignItems: "center",
-        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        background: "linear-gradient(135deg, #37353E 0%, #44444E 50%, #37353E 100%)",
         backgroundAttachment: "fixed",
         px: 4,
         py: 4,
@@ -735,22 +752,25 @@ export default function StudentDashboard() {
                   variant="contained"
                   disabled={loading}
                   sx={{ 
-                    background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
-                    borderRadius: "20px",
+                    background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+                    borderRadius: "14px",
                     px: 3,
                     py: 1.2,
-                    minWidth: "140px",
+                    alignSelf: "center",
+                    width: "160px",
+                    height: "40px",
                     textTransform: "none",
                     fontWeight: 600,
                     fontSize: "0.95rem",
-                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                    transition: "all 0.3s ease",
+                    boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
                     "&:hover": {
-                      transform: "scale(1.05)",
-                      boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
-                      background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                      transform: "translateY(-2px)",
+                      boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                      background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
                     },
                     "&:disabled": {
-                      background: "rgba(79, 70, 229, 0.5)",
+                      background: "rgba(139, 92, 246, 0.5)",
                     },
                   }}
                 >
@@ -828,10 +848,10 @@ export default function StudentDashboard() {
                           borderRadius: 2,
                           backgroundColor: isAssigned 
                             ? "rgba(16, 185, 129, 0.1)" 
-                            : "rgba(79, 70, 229, 0.05)",
+                            : "rgba(113, 90, 90, 0.05)",
                           border: isAssigned
                             ? "2px solid rgba(16, 185, 129, 0.3)"
-                            : "1px solid rgba(79, 70, 229, 0.2)",
+                            : "1px solid rgba(113, 90, 90, 0.2)",
                         }}
                       >
                         <CardContent>
@@ -859,8 +879,10 @@ export default function StudentDashboard() {
                               const hasRating =
                                 typeof tutor.tutorAverageRating === "number" &&
                                 !Number.isNaN(tutor.tutorAverageRating);
-                              const ratingText = hasRating
-                                ? `${tutor.tutorAverageRating.toFixed?.(1) ?? tutor.tutorAverageRating}/5 (${tutor.tutorRatingsCount || 0} reviews)`
+                              const averageRating = tutor.tutorAverageRating ?? 0;
+                              const reviewCount = tutor.tutorRatingsCount ?? 0;
+                              const ratingText = hasRating && reviewCount > 0
+                                ? `${averageRating.toFixed(1)}/5 (${reviewCount} ${reviewCount === 1 ? 'review' : 'reviews'})`
                                 : "No ratings yet";
                               
                               return (
@@ -871,10 +893,10 @@ export default function StudentDashboard() {
                                     borderRadius: 1,
                                     backgroundColor: isSelected 
                                       ? "rgba(16, 185, 129, 0.15)" 
-                                      : "rgba(79, 70, 229, 0.08)",
+                                      : "rgba(113, 90, 90, 0.08)",
                                     border: isSelected
                                       ? "1px solid rgba(16, 185, 129, 0.3)"
-                                      : "1px solid rgba(79, 70, 229, 0.2)",
+                                      : "1px solid rgba(113, 90, 90, 0.2)",
                                   }}
                                 >
                                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1 }}>
@@ -916,7 +938,14 @@ export default function StudentDashboard() {
                                       size="small"
                                       onClick={() => handleSelectTutor(queryItem.queryId, tutor.tutorId, tutor.tutorName)}
                                       sx={{ 
-                                        background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                                        background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+                                        transition: "all 0.3s ease",
+                                        boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+                                        "&:hover": {
+                                          transform: "translateY(-2px)",
+                                          boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                                          background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+                                        },
                                         borderRadius: "12px",
                                         px: 2,
                                         py: 0.75,
@@ -936,8 +965,15 @@ export default function StudentDashboard() {
                                       onClick={() => handleEnterSession(tutor.sessionId)}
                                       sx={{ 
                                         background: canEnter 
-                                          ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
-                                          : "rgba(16, 185, 129, 0.3)",
+                                          ? "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)"
+                                          : "rgba(139, 92, 246, 0.3)",
+                                        transition: "all 0.3s ease",
+                                        boxShadow: canEnter ? "0 4px 12px rgba(139, 92, 246, 0.3)" : "none",
+                                        "&:hover": canEnter ? {
+                                          transform: "translateY(-2px)",
+                                          boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                                          background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+                                        } : {},
                                         borderRadius: "12px",
                                         px: 2,
                                         py: 0.75,

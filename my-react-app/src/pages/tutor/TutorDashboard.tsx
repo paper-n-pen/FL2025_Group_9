@@ -107,6 +107,27 @@ export default function TutorDashboard() {
       try {
         const parsedTutor = JSON.parse(tabTutorData);
         if (parsedTutor && parsedTutor.id && parsedTutor.id.toString() === tabTutorId) {
+          // ✅ CRITICAL: Check localStorage for more recent coins (from session end)
+          const localStorageTutorJson = localStorage.getItem('tutorUser');
+          if (localStorageTutorJson) {
+            try {
+              const localStorageTutor = JSON.parse(localStorageTutorJson);
+              // If localStorage has same user ID but different coins, use localStorage (more recent)
+              if (localStorageTutor.id === parsedTutor.id && 
+                  localStorageTutor.tokens !== undefined && 
+                  localStorageTutor.tokens !== parsedTutor.tokens) {
+                console.log('[TUTOR DASHBOARD] ✅ Using coins from localStorage (more recent):', {
+                  sessionStorageCoins: parsedTutor.tokens,
+                  localStorageCoins: localStorageTutor.tokens,
+                });
+                parsedTutor.tokens = localStorageTutor.tokens;
+                parsedTutor.coins = localStorageTutor.coins ?? localStorageTutor.tokens;
+              }
+            } catch (e) {
+              // If parsing fails, use sessionStorage data
+            }
+          }
+          
           // Restore to localStorage if it was cleared
           if (isMounted) {
             setTutorUser(parsedTutor);
@@ -142,9 +163,18 @@ export default function TutorDashboard() {
       sessionStorage.setItem('tabTutorId', existingTutor.id.toString());
       sessionStorage.setItem('tabTutorData', JSON.stringify(existingTutor));
       
+      // ✅ CRITICAL: Ensure tokens/coins are preserved (don't reset to 0)
+      const tutorWithCoins = {
+        ...existingTutor,
+        tokens: existingTutor.tokens ?? existingTutor.coins ?? 0,
+        coins: existingTutor.coins ?? existingTutor.tokens ?? 0,
+      };
+      
       if (isMounted) {
-        setTutorUser(existingTutor);
+        setTutorUser(tutorWithCoins);
         markActiveUserType("tutor");
+        // Update localStorage to ensure coins are preserved
+        storeAuthState("tutor", null, tutorWithCoins);
       }
       return; // ✅ CRITICAL: Exit early - don't call /api/me at all
     }
@@ -251,12 +281,31 @@ export default function TutorDashboard() {
             return; // IMPORTANT: do not proceed to setUser with mismatched data
           }
 
+          // ✅ CRITICAL: Preserve coins from localStorage if API returns 0 or undefined
+          // This prevents coins from being reset to 0 after session end
+          const existingTutorData = (() => {
+            try {
+              const tutorUserJson = localStorage.getItem('tutorUser');
+              if (tutorUserJson) {
+                return JSON.parse(tutorUserJson);
+              }
+            } catch {
+              return null;
+            }
+            return null;
+          })();
+          
+          // If API returns 0/undefined tokens but we have coins in localStorage, use localStorage
+          const tokensValue = (u.tokens !== undefined && u.tokens !== null && u.tokens !== 0)
+            ? u.tokens
+            : (existingTutorData?.tokens ?? existingTutorData?.coins ?? u.tokens ?? 0);
+          
           const normalized = { 
             ...u, 
             userType: "tutor",
             username: u.username || u.name,
-            tokens: u.tokens ?? 0,
-            coins: u.tokens ?? 0,
+            tokens: tokensValue,
+            coins: tokensValue,
           };
           
           // Save to sessionStorage to preserve this tab's identity
@@ -360,6 +409,14 @@ export default function TutorDashboard() {
       fetchAcceptedQueries();
     };
 
+    // ✅ Listen for session-ended events to refresh queries (remove ended sessions)
+    const sessionEndedHandler = (data: any) => {
+      console.log("Session ended, refreshing queries:", data);
+      // Refresh both available and accepted queries to remove ended sessions
+      fetchQueries();
+      fetchAcceptedQueries();
+    };
+
     // 🔥 NEW: Listen for coin updates when student enters session
     const coinsUpdatedHandler = (data: any) => {
       console.log('[🪙 COINS] 🔔 Coin update event received from backend:', data);
@@ -415,6 +472,7 @@ export default function TutorDashboard() {
     socket.on("query-not-selected", queryNotSelectedHandler);
     socket.on("query-expired", queryExpiredHandler);
     socket.on("session-created", sessionCreatedHandler);
+    socket.on("session-ended", sessionEndedHandler);
     socket.on("coins-updated", coinsUpdatedHandler);  // 🔥 NEW
 
     return () => {
@@ -424,6 +482,7 @@ export default function TutorDashboard() {
       socket.off("query-not-selected", queryNotSelectedHandler);
       socket.off("query-expired", queryExpiredHandler);
       socket.off("session-created", sessionCreatedHandler);
+      socket.off("session-ended", sessionEndedHandler);
       socket.off("coins-updated", coinsUpdatedHandler);  // 🔥 NEW
     };
   }, [tutorUser?.id, tutorUser, fetchQueries]);
@@ -602,7 +661,7 @@ export default function TutorDashboard() {
         flexDirection: "column",
         justifyContent: "flex-start",
         alignItems: "center",
-        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        background: "linear-gradient(135deg, #37353E 0%, #44444E 50%, #37353E 100%)",
         backgroundAttachment: "fixed",
         py: 6,
       }}
@@ -691,7 +750,14 @@ export default function TutorDashboard() {
                                 variant="contained"
                                 onClick={() => handleAcceptQuery(query.id)}
                                 sx={{
-                                  background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                                  background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+                                  transition: "all 0.3s ease",
+                                  boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+                                  "&:hover": {
+                                    transform: "translateY(-2px)",
+                                    boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                                    background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+                                  },
                                   borderRadius: "12px",
                                   px: 3,
                                   py: 1,
@@ -701,8 +767,8 @@ export default function TutorDashboard() {
                                   transition: "transform 0.2s ease, box-shadow 0.2s ease",
                                   "&:hover": {
                                     transform: "scale(1.05)",
-                                    boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
-                                    background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                                    boxShadow: "0 4px 12px rgba(113, 90, 90, 0.4)",
+                                    background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
                                   },
                                 }}
                               >
@@ -713,7 +779,7 @@ export default function TutorDashboard() {
                                 onClick={() => handleDeclineQuery(query.id)}
                                 sx={{
                                   border: "1px solid rgba(239, 68, 68, 0.5)",
-                                  color: "#ef4444",
+                                  color: "#715A5A",
                                   borderRadius: "12px",
                                   px: 3,
                                   py: 1,
@@ -723,7 +789,7 @@ export default function TutorDashboard() {
                                   transition: "transform 0.2s ease, box-shadow 0.2s ease",
                                   "&:hover": {
                                     transform: "scale(1.05)",
-                                    borderColor: "#ef4444",
+                                    borderColor: "#715A5A",
                                     backgroundColor: "rgba(239, 68, 68, 0.1)",
                                   },
                                 }}
@@ -814,7 +880,9 @@ export default function TutorDashboard() {
                         >
                           <CardContent>
                             <Stack spacing={0.5}>
-                              <Typography variant="h6">{query.studentName}</Typography>
+                              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                                {query.studentName || query.student_name || `Student ${query.studentId || ''}`}
+                              </Typography>
                               <Typography variant="body2" color="text.secondary">
                                 {query.subject} • {query.subtopic}
                               </Typography>
@@ -854,9 +922,10 @@ export default function TutorDashboard() {
                                     mt: 1,
                                     borderRadius: "12px",
                                     px: 3,
-                                    py: 1,
+                                    py: 1.2,
                                     textTransform: "none",
                                     fontWeight: 600,
+                                    fontSize: "0.95rem",
                                   }}
                                 >
                                   OK
@@ -866,18 +935,22 @@ export default function TutorDashboard() {
                                   variant="contained"
                                   sx={{ 
                                     mt: 2,
-                                    background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
-                                    borderRadius: "16px",
+                                    background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+                                    borderRadius: "12px",
                                     px: 3,
-                                    py: 1.5,
-                                    minWidth: "180px",
+                                    py: 1.2,
+                                    width: "150px",
+                                    height: "40px",
+                                    // alignSelf: "center",
                                     textTransform: "none",
                                     fontWeight: 600,
-                                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                                    fontSize: "0.95rem",
+                                    transition: "all 0.3s ease",
+                                    boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
                                     "&:hover": {
-                                      transform: "scale(1.05)",
-                                      boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
-                                      background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                                      transform: "translateY(-2px)",
+                                      boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                                      background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
                                     },
                                   }}
                                   onClick={() => handleStartSession(query)}
@@ -890,18 +963,20 @@ export default function TutorDashboard() {
                                   onClick={() => handleRejoinSession(query)}
                                   sx={{ 
                                     mt: 2,
-                                    background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                                    borderRadius: "16px",
+                                    background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+                                    borderRadius: "12px",
                                     px: 3,
-                                    py: 1.5,
+                                    py: 1.2,
                                     minWidth: "180px",
                                     textTransform: "none",
                                     fontWeight: 600,
-                                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                                    fontSize: "0.95rem",
+                                    transition: "all 0.3s ease",
+                                    boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
                                     "&:hover": {
-                                      transform: "scale(1.05)",
-                                      boxShadow: "0 4px 12px rgba(16, 185, 129, 0.4)",
-                                      background: "linear-gradient(135deg, #059669 0%, #047857 100%)",
+                                      transform: "translateY(-2px)",
+                                      boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                                      background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
                                     },
                                   }}
                                 >

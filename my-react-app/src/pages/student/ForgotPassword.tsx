@@ -21,13 +21,13 @@ const ForgotPassword = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{
-      background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+      background: "linear-gradient(135deg, #37353E 0%, #44444E 50%, #37353E 100%)",
       backgroundAttachment: "fixed",
     }}>
       <div className="card max-w-md w-full p-8">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold mb-2" style={{ color: "#f1f5f9" }}>Reset Password</h1>
-          <p style={{ color: "#cbd5e1" }}>
+          <h1 className="text-3xl font-bold mb-2" style={{ color: "#D3DAD9" }}>Reset Password</h1>
+          <p style={{ color: "#b8c0bf" }}>
             Enter your email address and we'll send you a link to reset your password.
           </p>
         </div>
@@ -37,7 +37,7 @@ const ForgotPassword = () => {
             <div className="px-4 py-3 rounded-lg text-sm mb-6" style={{
               backgroundColor: "rgba(16, 185, 129, 0.15)",
               border: "1px solid rgba(16, 185, 129, 0.3)",
-              color: "#34d399",
+              color: "#8a6f6f",
             }}>
               {message}
             </div>
@@ -48,7 +48,7 @@ const ForgotPassword = () => {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: "#f1f5f9" }}>
+              <label className="block text-sm font-medium mb-2" style={{ color: "#D3DAD9" }}>
                 Email Address
               </label>
               <input
@@ -72,7 +72,7 @@ const ForgotPassword = () => {
         )}
 
         <div className="mt-6 text-center">
-          <Link to="/student/login" className="text-sm hover:underline" style={{ color: "#cbd5e1" }}>
+          <Link to="/student/login" className="text-sm hover:underline" style={{ color: "#b8c0bf" }}>
             ← Back to Login
           </Link>
         </div>

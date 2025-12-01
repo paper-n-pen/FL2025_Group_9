@@ -568,11 +568,19 @@ export default function VideoCallPanel({
             startIcon={<PhoneIcon />}
             onClick={handleStartCall}
             sx={{
-              background:
-                "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+              background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+              borderRadius: "12px",
+              px: 3,
+              py: 1.2,
+              textTransform: "none",
+              fontWeight: 600,
+              fontSize: "0.95rem",
+              transition: "all 0.3s ease",
+              boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
               "&:hover": {
-                background:
-                  "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                transform: "translateY(-2px)",
+                boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
               },
             }}
           >
@@ -589,11 +597,11 @@ export default function VideoCallPanel({
               }
               sx={{
                 bgcolor: isVideoEnabled
-                  ? "rgba(79, 70, 229, 0.1)"
+                  ? "rgba(113, 90, 90, 0.1)"
                   : "rgba(239, 68, 68, 0.1)",
                 "&:hover": {
                   bgcolor: isVideoEnabled
-                    ? "rgba(79, 70, 229, 0.2)"
+                    ? "rgba(113, 90, 90, 0.2)"
                     : "rgba(239, 68, 68, 0.2)",
                 },
               }}
@@ -612,11 +620,11 @@ export default function VideoCallPanel({
               }
               sx={{
                 bgcolor: isAudioEnabled
-                  ? "rgba(79, 70, 229, 0.1)"
+                  ? "rgba(113, 90, 90, 0.1)"
                   : "rgba(239, 68, 68, 0.1)",
                 "&:hover": {
                   bgcolor: isAudioEnabled
-                    ? "rgba(79, 70, 229, 0.2)"
+                    ? "rgba(113, 90, 90, 0.2)"
                     : "rgba(239, 68, 68, 0.2)",
                 },
               }}

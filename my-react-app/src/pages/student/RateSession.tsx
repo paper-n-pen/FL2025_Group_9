@@ -65,7 +65,7 @@ const normalizeUser = (raw: any): AuthUser => {
   };
 };
 
-const gradientBg = "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)";
+const gradientBg = "linear-gradient(135deg, #37353E 0%, #44444E 50%, #37353E 100%)";
 
 const RateSession = () => {
   const { sessionId } = useParams();
@@ -218,7 +218,7 @@ const RateSession = () => {
           background: "rgba(15, 23, 42, 0.8)",
           color: "white",
           backdropFilter: "blur(10px)",
-          border: "1px solid rgba(99, 102, 241, 0.4)",
+          border: "1px solid rgba(138, 111, 111, 0.4)",
         }}
       >
         <CardContent sx={{ p: { xs: 3, md: 5 } }}>
@@ -327,8 +327,15 @@ const RateSession = () => {
                   borderRadius: 3,
                   textTransform: "none",
                   px: 4,
-                  background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
-                  boxShadow: "0 8px 25px rgba(79, 70, 229, 0.35)",
+                  background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+                  transition: "all 0.3s ease",
+                  boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+                  "&:hover": {
+                    transform: "translateY(-2px)",
+                    boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                    background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+                  },
+                  boxShadow: "0 8px 25px rgba(113, 90, 90, 0.35)",
                 }}
               >
                 {alreadyRated ? "Rating Submitted" : submitting ? "Submitting..." : "Submit Rating"}

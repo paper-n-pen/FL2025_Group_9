@@ -96,7 +96,7 @@ async function buildDBContext(intent) {
         
         if (subject) {
           const tutors = await listTutorsBySubject(subject, 5);
-          console.log(`[DB_ROWS] ${tutors.length} tutors found`);
+          console.log(`[DB_ROWS] ${tutors.length} tutors found for subject "${subject}"`);
           
           if (tutors.length > 0) {
             // Format tutors list - explicitly state count
@@ -117,13 +117,15 @@ async function buildDBContext(intent) {
               const rating = formatRating(tutor.rating);
               const reviews = tutor.reviews_count || 0;
               
+              // CRITICAL: Use exact tutor name from database (username)
               dbBlocks.push(
                 `${idx + 1}. Tutor: ${tutor.name} | Subjects: ${subs} | Price: ${price} | Rating: ${rating} | Reviews: ${reviews}`
               );
+              console.log(`  ✅ Added tutor to context: ${tutor.name} (subjects: ${subs})`);
             });
           } else {
-            console.log(`[DB_ROWS] No tutors found for "${subject}"`);
-            dbBlocks.push(`I searched the database for tutors with subject "${subject}" but found 0 tutors.`);
+            console.log(`[DB_ROWS] No tutors found for "${subject}" - will tell user no tutors found`);
+            dbBlocks.push(`Found 0 tutors for "${subject}". The database search returned no results.`);
           }
         } else {
           // List all tutors
@@ -132,7 +134,8 @@ async function buildDBContext(intent) {
           console.log(`[DB_ROWS] ${tutors.length} total tutors`);
           
           if (tutors.length > 0) {
-            tutors.forEach(tutor => {
+            dbBlocks.push(`Found ${tutors.length} tutor${tutors.length > 1 ? 's' : ''} in the database:`);
+            tutors.forEach((tutor, idx) => {
               const subs = (tutor.subjects || []).map(s => {
                 return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
               }).join(', ') || 'N/A';
@@ -142,12 +145,12 @@ async function buildDBContext(intent) {
               const reviews = tutor.reviews_count || 0;
 
               dbBlocks.push(
-                `Tutor: ${tutor.name} | Subjects: ${subs} | Price: ${price} | Rating: ${rating} | Reviews: ${reviews}`
+                `${idx + 1}. Tutor: ${tutor.name} | Subjects: ${subs} | Price: ${price} | Rating: ${rating} | Reviews: ${reviews}`
               );
             });
           } else {
             console.log(`[DB_ROWS] No tutors found in database`);
-            dbBlocks.push('No tutors found in the database.');
+            dbBlocks.push('Found 0 tutors. The database is empty.');
           }
         }
         break;
@@ -268,27 +271,49 @@ router.post("/chat", async (req, res) => {
     if (contextParts.length > 0) {
       const combinedContext = contextParts.join('\n\n---\n\n');
       
-      messagesToSend = [
-        {
-          role: "system",
-          content: `You are TutorBot. Answer using ONLY the DB and Docs context provided.
+      // Check if DB context exists and has tutor data
+      const hasTutorData = dbContext && (
+        dbContext.includes('Found') || 
+        dbContext.includes('Tutor:') || 
+        dbContext.match(/\d+\.\s*Tutor:/)
+      );
+      
+      // Build strict system message based on whether we have tutor data
+      let systemMessage = `You are TutorBot. Answer using ONLY the DB and Docs context provided.
 
-ABSOLUTE RULES - NO EXCEPTIONS:
+CRITICAL RULES - VIOLATION WILL CAUSE INCORRECT INFORMATION:
 1. NEVER invent, make up, or add any tutor names, prices, ratings, or data that is NOT in the DB context.
 2. Count the tutors in the DB context. If DB shows "Found 1 tutor", list ONLY 1 tutor. If DB shows "Found 0 tutors", say you found 0 tutors.
 3. Copy the EXACT tutor information from DB context. Do NOT change names, prices, or add details.
 4. If DB context says "Found X tutors", list EXACTLY X tutors from the DB context - no more, no less.
-5. If DB context shows 0 tutors, reply: "I couldn't find any tutors for [subject] in our database. Try another subject or check spelling."
+5. If DB context shows 0 tutors or says "No tutors found", reply: "I couldn't find any tutors for [subject] in our database. Try another subject or check spelling."
 6. Do NOT use placeholders like "[Tutor Name]" or make up example tutors.
 7. Do NOT estimate or calculate prices - use the EXACT price from DB context.
 8. Keep answers concise and factual.
 9. Format: Use the numbered list format from DB context (1. Tutor: ... 2. Tutor: ...).
+10. Copy tutor names EXACTLY as shown in DB context (e.g., if DB shows "tutor101", use "tutor101", not "John" or "Jane" or any other name).
 
-The DB context shows the ACTUAL count and data. If it says "Found 1 tutor", there is only 1. Do not add more.`,
+The DB context shows the ACTUAL count and data. If it says "Found 1 tutor", there is only 1. Do not add more.`;
+
+      if (!hasTutorData && dbContext) {
+        systemMessage += `\n\nWARNING: The DB context does not contain any tutor data. You MUST reply that you couldn't find any tutors. Do NOT make up tutor names.`;
+      }
+      
+      messagesToSend = [
+        {
+          role: "system",
+          content: systemMessage,
         },
         {
           role: "user",
-          content: `Context:\n${combinedContext}\n\n---\n\nUser's question: ${userQuery}\n\nIMPORTANT: Use ONLY the tutors listed in the DB context above. Do NOT invent, estimate, or add any tutors. If DB shows 1 tutor, list only 1. If DB shows 0 tutors, say you couldn't find any.`,
+          content: `Context:\n${combinedContext}\n\n---\n\nUser's question: ${userQuery}\n\nCRITICAL INSTRUCTIONS:
+- Use ONLY the tutors listed in the DB context above.
+- Do NOT invent, estimate, or add any tutors.
+- If DB shows 1 tutor, list only 1.
+- If DB shows 0 tutors or no tutors, say: "I couldn't find any tutors for [subject] in our database."
+- Copy tutor names EXACTLY as shown in DB context (e.g., if DB shows "tutor101", use "tutor101", not "John" or "Jane").
+- If DB context is empty, null, or says "No tutors found", you MUST say you couldn't find any tutors.
+- NEVER use example names like "John", "Jane", "Alex", "Sarah", etc. - only use names from DB context.`,
         },
         // Include original conversation (skip any existing system messages)
         ...messages.filter(msg => msg.role !== "system"),
@@ -296,10 +321,27 @@ The DB context shows the ACTUAL count and data. If it says "Found 1 tutor", ther
 
       if (dbContext && dbContext.trim().length > 0) {
         console.log(`💾 DB: Retrieved context for intent: ${intent.type}`);
+        console.log(`💾 DB Context content: ${dbContext.substring(0, 200)}...`);
+      } else {
+        console.log(`⚠️  DB context is empty for intent: ${intent.type}`);
       }
     } else {
       // No context available - log for debugging
       console.log(`⚠️  No context available. Intent: ${intent.type}, DB: ${dbContext ? 'empty' : 'null'}, RAG: ${ragContext ? 'empty' : 'null'}`);
+      // If no DB context and intent is tutors_by_subject, explicitly tell LLM no tutors found
+      if (intent.type === 'tutors_by_subject' && (!dbContext || dbContext.trim().length === 0)) {
+        messagesToSend = [
+          {
+            role: "system",
+            content: `You are TutorBot. The database query returned no results. You MUST tell the user that you couldn't find any tutors for the requested subject. Do NOT make up or invent any tutor names.`,
+          },
+          {
+            role: "user",
+            content: `User's question: ${userQuery}\n\nIMPORTANT: The database search returned 0 tutors. You MUST reply: "I couldn't find any tutors for [subject] in our database. Try another subject or check spelling." Do NOT invent any tutor names.`,
+          },
+          ...messages.filter(msg => msg.role !== "system"),
+        ];
+      }
     }
 
     // Call LLM service (Ollama)

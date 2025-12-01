@@ -142,7 +142,7 @@ export default function TutorSetup() {
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        background: "linear-gradient(135deg, #37353E 0%, #44444E 50%, #37353E 100%)",
         backgroundAttachment: "fixed",
         p: 2,
       }}
@@ -294,7 +294,14 @@ export default function TutorSetup() {
             disabled={loading}
             sx={{ 
               mt: 3,
-              background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+              background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+              transition: "all 0.3s ease",
+              boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+              "&:hover": {
+                transform: "translateY(-2px)",
+                boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+              },
               borderRadius: "16px",
               px: 4,
               py: 1.5,
@@ -305,11 +312,11 @@ export default function TutorSetup() {
               transition: "transform 0.2s ease, box-shadow 0.2s ease",
               "&:hover": {
                 transform: "scale(1.05)",
-                boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
-                background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                boxShadow: "0 4px 12px rgba(113, 90, 90, 0.4)",
+                background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
               },
               "&:disabled": {
-                background: "rgba(79, 70, 229, 0.5)",
+                background: "rgba(113, 90, 90, 0.5)",
               },
             }}
           >

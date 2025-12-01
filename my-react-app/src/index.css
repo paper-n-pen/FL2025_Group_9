@@ -4,8 +4,8 @@
   font-weight: 400;
 
   color-scheme: dark;
-  color: #f1f5f9;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  color: #ffffff;
+  background: linear-gradient(135deg, #0a0a0f 0%, #1a1a24 30%, #0f0f1a 60%, #0a0a0f 100%);
   background-attachment: fixed;
   min-height: 100vh;
 
@@ -17,35 +17,35 @@
 
 a {
   font-weight: 500;
-  color: #6366f1;
+  color: #8b5cf6;
   text-decoration: inherit;
 }
 a:hover {
-  color: #818cf8;
+  color: #a78bfa;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  background: linear-gradient(135deg, #0a0a0f 0%, #1a1a24 30%, #0f0f1a 60%, #0a0a0f 100%);
   background-attachment: fixed;
 }
 
 #root {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  background: linear-gradient(135deg, #0a0a0f 0%, #1a1a24 30%, #0f0f1a 60%, #0a0a0f 100%);
   background-attachment: fixed;
 }
 
 h1 {
   font-size: 3.2em;
   line-height: 1.1;
-  color: #f1f5f9;
+  color: #ffffff;
 }
 
 h2, h3, h4, h5, h6 {
-  color: #f1f5f9;
+  color: #ffffff;
 }
 
 button {
@@ -55,17 +55,17 @@ button {
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
-  background-color: #1e293b;
-  color: #f1f5f9;
+  background-color: #1a1a24;
+  color: #ffffff;
   cursor: pointer;
   transition: all 0.25s;
 }
 button:hover {
-  background-color: #334155;
-  border-color: #6366f1;
+  background-color: #2a2a34;
+  border-color: #8b5cf6;
 }
 button:focus,
 button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
-  outline-color: #6366f1;
+  outline-color: #8b5cf6;
 }

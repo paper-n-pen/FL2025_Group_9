@@ -312,7 +312,7 @@ export default function Navbar({
     <Box
       sx={{
         bgcolor: "background.paper",
-        backgroundImage: "linear-gradient(to bottom right, #1e293b, #0f172a)",
+        backgroundImage: "linear-gradient(to bottom right, #44444E, #37353E)",
         boxShadow: 1,
         borderBottom: "1px solid",
         borderColor: "rgba(148, 163, 184, 0.2)",
@@ -412,7 +412,14 @@ export default function Navbar({
               onClick={onEndSessionClick}
               sx={{
                 fontWeight: 600,
-                background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+                transition: "all 0.3s ease",
+                boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+                "&:hover": {
+                  transform: "translateY(-2px)",
+                  boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                  background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+                },
                 borderRadius: "12px",
                 px: 3,
                 py: 1,
@@ -421,7 +428,7 @@ export default function Navbar({
                 "&:hover": {
                   transform: "scale(1.05)",
                   boxShadow: "0 4px 12px rgba(239, 68, 68, 0.4)",
-                  background: "linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)",
+                  background: "linear-gradient(135deg, #5a4848 0%, #b91c1c 100%)",
                 },
               }}
             >

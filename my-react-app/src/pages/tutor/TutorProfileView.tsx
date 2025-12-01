@@ -65,7 +65,7 @@ export default function TutorProfileView() {
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        background: "linear-gradient(135deg, #37353E 0%, #44444E 50%, #37353E 100%)",
         color: "white",
         p: 2,
       }}

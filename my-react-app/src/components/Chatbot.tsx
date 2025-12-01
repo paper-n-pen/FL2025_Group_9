@@ -95,7 +95,14 @@ export default function Chatbot() {
             width: '60px',
             height: '60px',
             borderRadius: '50%',
-            backgroundColor: '#4f46e5',
+            backgroundColor: '#8b5cf6',
+            transition: "all 0.3s ease",
+            boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+            "&:hover": {
+              transform: "translateY(-2px)",
+              boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+              backgroundColor: '#7c3aed',
+            },
             color: 'white',
             border: 'none',
             cursor: 'pointer',
@@ -121,7 +128,7 @@ export default function Chatbot() {
             right: '20px',
             width: '360px',
             height: '480px',
-            backgroundColor: '#1e293b',
+            backgroundColor: '#44444E',
             border: '1px solid rgba(148, 163, 184, 0.2)',
             borderRadius: '8px',
             boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
@@ -134,7 +141,14 @@ export default function Chatbot() {
           {/* Header */}
           <div
             style={{
-              backgroundColor: '#4f46e5',
+              backgroundColor: '#8b5cf6',
+            transition: "all 0.3s ease",
+            boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+            "&:hover": {
+              transform: "translateY(-2px)",
+              boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+              backgroundColor: '#7c3aed',
+            },
               color: 'white',
               padding: '16px',
               display: 'flex',
@@ -185,8 +199,8 @@ export default function Chatbot() {
                   padding: '10px 14px',
                   borderRadius: '12px',
                   backgroundColor:
-                    msg.role === 'user' ? '#4f46e5' : '#334155',
-                  color: msg.role === 'user' ? 'white' : '#f1f5f9',
+                    msg.role === 'user' ? '#715A5A' : '#5a5a66',
+                  color: msg.role === 'user' ? 'white' : '#D3DAD9',
                   wordWrap: 'break-word',
                   fontSize: '14px',
                   lineHeight: '1.4',
@@ -201,8 +215,8 @@ export default function Chatbot() {
                   alignSelf: 'flex-start',
                   padding: '10px 14px',
                   borderRadius: '12px',
-                  backgroundColor: '#334155',
-                  color: '#cbd5e1',
+                  backgroundColor: '#5a5a66',
+                  color: '#b8c0bf',
                   fontSize: '14px',
                 }}
               >
@@ -217,7 +231,7 @@ export default function Chatbot() {
             style={{
               padding: '12px',
               borderTop: '1px solid rgba(148, 163, 184, 0.2)',
-              backgroundColor: '#1e293b',
+              backgroundColor: '#44444E',
               display: 'flex',
               gap: '8px',
             }}
@@ -237,8 +251,8 @@ export default function Chatbot() {
                 borderRadius: '20px',
                 fontSize: '14px',
                 outline: 'none',
-                backgroundColor: '#334155',
-                color: '#f1f5f9',
+                backgroundColor: '#5a5a66',
+                color: '#D3DAD9',
               }}
             />
             <button
@@ -246,7 +260,14 @@ export default function Chatbot() {
               disabled={isLoading || !input.trim()}
               style={{
                 padding: '10px 20px',
-                backgroundColor: '#4f46e5',
+                backgroundColor: '#8b5cf6',
+            transition: "all 0.3s ease",
+            boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+            "&:hover": {
+              transform: "translateY(-2px)",
+              boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+              backgroundColor: '#7c3aed',
+            },
                 color: 'white',
                 border: 'none',
                 borderRadius: '20px',

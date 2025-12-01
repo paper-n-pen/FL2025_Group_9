@@ -52,14 +52,9 @@ export default function TutorNavbar({
           coins: parsedUser.tokens ?? parsedUser.coins ?? 0,
         };
         
-        // ✅ CRITICAL: Only update if user ID changed or coins changed
+        // ✅ CRITICAL: Always update if coins changed (even if user ID is same)
         // Use functional setState to compare with current state
         setUser((prevUser: any) => {
-          // If same user ID and same coins, don't update (prevent infinite loop)
-          if (prevUser?.id === userWithCoins.id && prevUser?.coins === userWithCoins.coins) {
-            return prevUser; // Return same reference to prevent re-render
-          }
-          
           // ✅ CRITICAL: Check if this is a different user than what we're currently showing
           if (prevUser && prevUser.id && userWithCoins.id && prevUser.id !== userWithCoins.id) {
             console.error('[TUTOR NAVBAR] 🚨 USER ID MISMATCH - REJECTING UPDATE!', {
@@ -71,6 +66,19 @@ export default function TutorNavbar({
             });
             return prevUser; // Keep current user
           }
+          
+          // ✅ CRITICAL: Always update if coins changed (for session end scenarios)
+          // This ensures coins are updated even if user ID is the same
+          if (prevUser?.id === userWithCoins.id && prevUser?.coins === userWithCoins.coins) {
+            // Only skip update if coins are truly the same
+            return prevUser; // Return same reference to prevent re-render
+          }
+          
+          console.log('[TUTOR NAVBAR] ✅ Updating tutor user:', {
+            userId: userWithCoins.id,
+            oldCoins: prevUser?.coins,
+            newCoins: userWithCoins.coins,
+          });
           
           return userWithCoins;
         });
@@ -103,6 +111,15 @@ export default function TutorNavbar({
         try {
           const currentUser = JSON.parse(currentUserJson);
           const eventUserId = customEvent.detail?.userId;
+          const eventTutorCoins = customEvent.detail?.tutorCoins;
+          
+          // ✅ CRITICAL: Always reload if tutorCoins are in the event (session end scenario)
+          if (eventTutorCoins !== undefined && eventTutorCoins !== null) {
+            console.log('[TUTOR NAVBAR] 🔔 Token update event with tutorCoins, forcing reload:', eventTutorCoins);
+            loadTutorUser();
+            return;
+          }
+          
           // Only reload if the event is for the current user or no userId specified
           if (eventUserId && currentUser?.id && eventUserId !== currentUser.id) {
             return; // Ignore events for other users
@@ -187,7 +204,7 @@ export default function TutorNavbar({
     <Box
       sx={{
         bgcolor: "background.paper",
-        backgroundImage: "linear-gradient(to bottom right, #1e293b, #0f172a)",
+        backgroundImage: "linear-gradient(to bottom right, #44444E, #37353E)",
         boxShadow: 1,
         borderBottom: "1px solid",
         borderColor: "rgba(148, 163, 184, 0.2)",
@@ -309,7 +326,14 @@ export default function TutorNavbar({
               onClick={onEndSessionClick}
               sx={{
                 fontWeight: 600,
-                background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+                transition: "all 0.3s ease",
+                boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+                "&:hover": {
+                  transform: "translateY(-2px)",
+                  boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                  background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+                },
                 borderRadius: "12px",
                 px: 3,
                 py: 1,
@@ -318,7 +342,7 @@ export default function TutorNavbar({
                 "&:hover": {
                   transform: "scale(1.05)",
                   boxShadow: "0 4px 12px rgba(239, 68, 68, 0.4)",
-                  background: "linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)",
+                  background: "linear-gradient(135deg, #5a4848 0%, #b91c1c 100%)",
                 },
               }}
             >

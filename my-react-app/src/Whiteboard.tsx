@@ -30,10 +30,14 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
     const [isDrawing, setIsDrawing] = useState(false);
     const [currentTool, setCurrentTool] = useState<Tool>('pen');
     const [brushSize, setBrushSize] = useState(5);
-    const [brushColor, setBrushColor] = useState('#000000');
-    const brushStateRef = useRef({ size: 5, color: '#000000' });
+    const [brushColor, setBrushColor] = useState('#39FF14'); // Neon green as default
+    const [boardColor, setBoardColor] = useState<'white' | 'black' | 'grey'>('black');
+    const [pageStyle, setPageStyle] = useState<'plain' | 'lines' | 'grid' | 'dotted'>('plain');
+    const boardColorRef = useRef<'white' | 'black' | 'grey'>('black');
+    const brushStateRef = useRef({ size: 5, color: '#39FF14' });
     const pointsRef = useRef<Point[]>([]);
     const drawHistoryRef = useRef<DrawData[]>([]);
+    const canvasContainerRef = useRef<HTMLDivElement>(null);
 
     const resetHistory = useCallback(() => {
         drawHistoryRef.current = [];
@@ -75,6 +79,7 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
                 break;
             }
             case 'clear': {
+                // Clear canvas (transparent) - CSS background on container shows through
                 context.clearRect(0, 0, canvas.width, canvas.height);
                 break;
             }
@@ -118,6 +123,7 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
             return;
         }
 
+        // Clear canvas (transparent) - CSS background on container shows through
         context.clearRect(0, 0, canvas.width, canvas.height);
 
         for (const entry of drawHistoryRef.current) {
@@ -144,22 +150,36 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
         const rawWidth = (container?.clientWidth ?? window.innerWidth * 0.9) - paddingX;
         const width = Math.max(rawWidth, 100);
 
-    const availableHeight = (container?.clientHeight ?? window.innerHeight * 0.8) - toolbarHeight - paddingY;
-    const viewportLimit = Math.max(window.innerHeight - 240 - toolbarHeight, 200);
-    const ratioLimit = width * 0.75; // keep a reasonable aspect ratio (4:3)
-    const boundedHeight = Math.min(availableHeight, ratioLimit, viewportLimit);
-    const height = Math.max(boundedHeight, 200);
+        // Visible height for the scrollable container
+        const availableHeight = (container?.clientHeight ?? window.innerHeight * 0.8) - toolbarHeight - paddingY;
+        const viewportLimit = Math.max(window.innerHeight - 240 - toolbarHeight, 200);
+        const ratioLimit = width * 0.75; // keep a reasonable aspect ratio (4:3)
+        const boundedHeight = Math.min(availableHeight, ratioLimit, viewportLimit);
+        const visibleHeight = Math.max(boundedHeight, 200);
+
+        // Set container height to visible height for scrolling
+        const canvasContainer = canvasContainerRef.current;
+        if (canvasContainer) {
+            canvasContainer.style.height = `${visibleHeight}px`;
+        }
+
+        // Canvas will be 3x the visible height for scrolling
+        const canvasHeight = visibleHeight * 3;
 
         canvas.width = width;
-        canvas.height = height;
+        canvas.height = canvasHeight;
         canvas.style.width = `${width}px`;
-        canvas.style.height = `${height}px`;
+        canvas.style.height = `${canvasHeight}px`;
 
         const context = canvas.getContext('2d');
         if (!context) {
             return;
         }
 
+        // Canvas background is handled by CSS on the container
+        // Canvas itself should be transparent so CSS background shows through
+        // No need to fill here - CSS handles it
+        
         const { size, color } = brushStateRef.current;
         context.lineCap = 'round';
         context.lineJoin = 'round';
@@ -187,6 +207,7 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
 
     useEffect(() => {
         brushStateRef.current = { size: brushSize, color: brushColor };
+        boardColorRef.current = boardColor;
         const context = contextRef.current;
         if (!context) {
             return;
@@ -194,7 +215,13 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
 
         context.strokeStyle = brushColor;
         context.lineWidth = brushSize;
-    }, [brushColor, brushSize]);
+    }, [brushColor, brushSize, boardColor]);
+
+    // When board color changes, redraw history on transparent canvas
+    // The CSS background on the container will show through
+    useEffect(() => {
+        replayHistory();
+    }, [boardColor, replayHistory]);
 
     useEffect(() => {
         if (!sessionId || !socket) return;
@@ -247,13 +274,17 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
             return { x: 0, y: 0 };
         }
 
+        // Get the bounding rect of the canvas - recompute on each event
+        // getBoundingClientRect() already accounts for scroll position in viewport coordinates
         const rect = canvas.getBoundingClientRect();
         const { clientX, clientY } = event.nativeEvent;
-
-        return {
-            x: clientX - rect.left,
-            y: clientY - rect.top
-        };
+        
+        // Convert viewport coordinates to canvas coordinates
+        // No scroll offset needed - getBoundingClientRect() already handles it
+        const x = ((clientX - rect.left) * canvas.width) / rect.width;
+        const y = ((clientY - rect.top) * canvas.height) / rect.height;
+        
+        return { x, y };
     }, []);
 
     const emitDrawing = useCallback((payload: DrawData) => {
@@ -405,10 +436,11 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
         const context = contextRef.current;
         const canvas = canvasRef.current;
         if (!context || !canvas) return;
+        // Clear canvas (transparent) - CSS background on container shows through
         context.clearRect(0, 0, canvas.width, canvas.height);
         resetHistory();
         emitDrawing({ type: 'clear' });
-    }, [emitDrawing]);
+    }, [emitDrawing, resetHistory]);
 
     const downloadCanvas = useCallback(() => {
         const canvas = canvasRef.current;
@@ -503,6 +535,90 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
                     </span>
                 </div>
 
+                {/* Board Color */}
+                <div className="wb-field" aria-label="Board color">
+                    <label htmlFor="board-color">Board:</label>
+                    <div className="wb-seg" role="group" aria-label="Board color">
+                        <button
+                            type="button"
+                            aria-pressed={boardColor === 'white'}
+                            aria-label="White board"
+                            onClick={() => setBoardColor('white')}
+                            title="White board"
+                            style={{ fontSize: '12px', padding: '6px 10px' }}
+                        >
+                            ⚪
+                        </button>
+                        <button
+                            type="button"
+                            aria-pressed={boardColor === 'black'}
+                            aria-label="Black board"
+                            onClick={() => setBoardColor('black')}
+                            title="Black board"
+                            style={{ fontSize: '12px', padding: '6px 10px' }}
+                        >
+                            ⚫
+                        </button>
+                        <button
+                            type="button"
+                            aria-pressed={boardColor === 'grey'}
+                            aria-label="Grey board"
+                            onClick={() => setBoardColor('grey')}
+                            title="Grey board"
+                            style={{ fontSize: '12px', padding: '6px 10px' }}
+                        >
+                            ⚪
+                        </button>
+                    </div>
+                </div>
+
+                {/* Page Style */}
+                <div className="wb-field" aria-label="Page style">
+                    <label htmlFor="page-style">Style:</label>
+                    <div className="wb-seg" role="group" aria-label="Page style">
+                        <button
+                            type="button"
+                            aria-pressed={pageStyle === 'plain'}
+                            aria-label="Plain"
+                            onClick={() => setPageStyle('plain')}
+                            title="Plain"
+                            style={{ fontSize: '12px', padding: '6px 10px' }}
+                        >
+                            Plain
+                        </button>
+                        <button
+                            type="button"
+                            aria-pressed={pageStyle === 'lines'}
+                            aria-label="Lines"
+                            onClick={() => setPageStyle('lines')}
+                            title="Lines"
+                            style={{ fontSize: '12px', padding: '6px 10px' }}
+                        >
+                            Lines
+                        </button>
+                        <button
+                            type="button"
+                            aria-pressed={pageStyle === 'grid'}
+                            aria-label="Grid"
+                            onClick={() => setPageStyle('grid')}
+                            title="Grid"
+                            style={{ fontSize: '12px', padding: '6px 10px' }}
+                        >
+                            Grid
+                        </button>
+                        <button
+                            type="button"
+                            aria-pressed={pageStyle === 'dotted'}
+                            aria-label="Dotted"
+                            onClick={() => setPageStyle('dotted')}
+                            title="Dotted"
+                            style={{ fontSize: '12px', padding: '6px 10px' }}
+                        >
+                            Dotted
+                        </button>
+                    </div>
+                </div>
+
                 {/* Action Buttons */}
                 <div className="wb-toolbar-actions">
                     <button
@@ -526,16 +642,23 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
                 </div>
             </div>
 
-            {/* Canvas */}
-            <canvas
-                onMouseDown={startDrawing}
-                onMouseUp={finishDrawing}
-                onMouseMove={draw}
-                onMouseLeave={finishDrawing}
-                ref={canvasRef}
-                className="wb-canvas"
-                aria-label="Whiteboard canvas"
-            />
+            {/* Canvas Container with Scroll */}
+            <div 
+                ref={canvasContainerRef}
+                className="wb-canvas-container"
+                data-board-color={boardColor}
+                data-page-style={pageStyle}
+            >
+                <canvas
+                    onMouseDown={startDrawing}
+                    onMouseUp={finishDrawing}
+                    onMouseMove={draw}
+                    onMouseLeave={finishDrawing}
+                    ref={canvasRef}
+                    className="wb-canvas"
+                    aria-label="Whiteboard canvas"
+                />
+            </div>
         </div>
     );
 };

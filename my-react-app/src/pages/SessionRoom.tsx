@@ -348,10 +348,23 @@ export default function SessionRoom() {
           tutorId = Number(participantsResp.tutorId);
           console.log('[🪙 COINS SYNC] Got session participants:', { studentId, tutorId });
         } else {
-          console.warn('[🪙 COINS SYNC] Participants endpoint did not return valid data');
+          console.warn('[🪙 COINS SYNC] Participants endpoint did not return valid data - session may be deleted');
         }
       } catch (err) {
-        console.error('[🪙 COINS SYNC] Failed to get session participants:', err);
+        console.error('[🪙 COINS SYNC] Failed to get session participants (session may be deleted):', err);
+        // ✅ FALLBACK: Try to get IDs from current user context or location state
+        const currentUser = user;
+        const sessionData = location.state as any;
+        if (currentUser?.userType === 'student') {
+          studentId = currentUser.id;
+          tutorId = sessionData?.tutorId ? Number(sessionData.tutorId) : null;
+        } else if (currentUser?.userType === 'tutor') {
+          tutorId = currentUser.id;
+          studentId = sessionData?.studentId ? Number(sessionData.studentId) : null;
+        }
+        if (studentId && tutorId) {
+          console.log('[🪙 COINS SYNC] Using fallback IDs from context:', { studentId, tutorId });
+        }
       }
 
       if (!studentId || !tutorId) {
@@ -434,34 +447,85 @@ export default function SessionRoom() {
         console.warn('[🪙 COINS SYNC] ⚠️ Student coins API did not return ok=true');
       }
 
-      // Update tutor coins - ONLY if this tutor is currently logged in
+      // Update tutor coins - ALWAYS update if tutorId matches (for session end scenarios)
       if (tutorCoinsResp && tutorCoinsResp.ok && tutorId) {
-        // ✅ CRITICAL: Check if this tutor is the one currently logged in
+        // ✅ CRITICAL: Always update tutor coins if tutorId matches
+        // This ensures coins are preserved even if tutor navigates away
         const currentTutorFromStorage = getAuthStateForType("tutor").user;
-        if (currentTutorFromStorage && currentTutorFromStorage.id === tutorId) {
-          const tutorData = {
-            ...currentTutorFromStorage, // Preserve all existing tutor data
-            userType: 'tutor',
-            tokens: tutorCoinsResp.coins,
-            coins: tutorCoinsResp.coins,
-          };
-          storeAuthState('tutor', null, tutorData);
-          console.log('[🪙 COINS SYNC] ✅ Tutor coins updated (matched logged-in tutor):', {
-            tutorId,
-            coins: tutorCoinsResp.coins,
-          });
-        } else {
-          console.log('[🪙 COINS SYNC] ⚠️ Skipping tutor coin update - different tutor logged in:', {
-            sessionTutorId: tutorId,
-            loggedInTutorId: currentTutorFromStorage?.id,
-          });
-        }
+        
+        // If there's a tutor in storage, preserve their data; otherwise create minimal tutor data
+        const tutorData = currentTutorFromStorage && currentTutorFromStorage.id === tutorId
+          ? {
+              ...currentTutorFromStorage, // Preserve all existing tutor data
+              userType: 'tutor',
+              tokens: tutorCoinsResp.coins,
+              coins: tutorCoinsResp.coins,
+            }
+          : {
+              id: tutorId,
+              userType: 'tutor',
+              tokens: tutorCoinsResp.coins,
+              coins: tutorCoinsResp.coins,
+              username: currentTutorFromStorage?.username || `Tutor ${tutorId}`,
+            };
+        
+        storeAuthState('tutor', null, tutorData);
+        
+        // ✅ CRITICAL: Dispatch event to update TutorNavbar immediately
+        // Dispatch multiple times to ensure it's caught
+        const dispatchTutorUpdate = () => {
+          window.dispatchEvent(new CustomEvent('token-update', { 
+            detail: { 
+              userId: tutorId,
+              tokens: tutorCoinsResp.coins,
+              coins: tutorCoinsResp.coins,
+              tutorCoins: tutorCoinsResp.coins,
+              tutorUserId: tutorId,
+            } 
+          }));
+          window.dispatchEvent(new Event('token-update'));
+        };
+        dispatchTutorUpdate();
+        setTimeout(dispatchTutorUpdate, 50);
+        setTimeout(dispatchTutorUpdate, 100);
+        
+        console.log('[🪙 COINS SYNC] ✅ Tutor coins updated:', {
+          tutorId,
+          coins: tutorCoinsResp.coins,
+          hadExistingData: !!currentTutorFromStorage,
+        });
       } else {
-        console.warn('[🪙 COINS SYNC] ⚠️ Tutor coins API did not return ok=true');
+        console.warn('[🪙 COINS SYNC] ⚠️ Tutor coins API did not return ok=true', {
+          tutorCoinsResp,
+          tutorId,
+        });
       }
 
       // ✅ BOTH COINS UPDATED - Dispatch event to notify BOTH navbars simultaneously
-      window.dispatchEvent(new Event('token-update'));
+      // ✅ CRITICAL: Dispatch with detail to ensure all tabs/components receive the update
+      const dispatchUpdate = () => {
+        window.dispatchEvent(new CustomEvent('token-update', { 
+          detail: { 
+            studentCoins: studentCoinsResp?.coins,
+            tutorCoins: tutorCoinsResp?.coins,
+            tutorUserId: tutorId,
+            studentUserId: studentId,
+            userId: tutorId, // Also include for backward compatibility
+            tokens: tutorCoinsResp?.coins,
+            coins: tutorCoinsResp?.coins,
+            timestamp: Date.now(),
+          } 
+        }));
+        // Also dispatch plain event for backward compatibility
+        window.dispatchEvent(new Event('token-update'));
+      };
+      
+      dispatchUpdate();
+      // Dispatch again after a small delay to ensure it's caught
+      setTimeout(dispatchUpdate, 50);
+      setTimeout(dispatchUpdate, 100);
+      setTimeout(dispatchUpdate, 200);
+      
       console.log('[🪙 COINS SYNC] 📢 Dispatched token-update event for BOTH navbars (student + tutor)');
       console.log('[🪙 COINS SYNC] ✅ Both student and tutor coins updated simultaneously');
     } catch (err) {
@@ -597,13 +661,13 @@ export default function SessionRoom() {
       // This is an API endpoint end - treat as final end and show rating
       setTimerStatus("ended");
       const isStudent = user?.userType === "student";
-      if (isStudent) {
+      if (isStudent && sessionId) {
         enqueueSnack(
-          "Session has ended. Redirecting to your dashboard...",
+          "Session has ended. Please rate your session...",
           "info"
         );
-        console.log('[NAVIGATION] handleSessionEnded → Student going to dashboard');
-        navigate("/student/dashboard", { replace: true });
+        console.log('[NAVIGATION] handleSessionEnded → Student going to rating page, sessionId:', sessionId);
+        navigate(`/student/rate-session/${sessionId}`, { replace: true });
       } else {
         enqueueSnack(
           "Session has ended. Redirecting to your dashboard...",
@@ -753,6 +817,8 @@ export default function SessionRoom() {
         try {
           await refreshBothCoins();
           console.log('[🪙 COINS SYNC] ✅ Both coins synced successfully from database');
+          // ✅ CRITICAL: Small delay to ensure localStorage updates are written before navigation
+          await new Promise(resolve => setTimeout(resolve, 100));
         } catch (error) {
           console.error('[🪙 COINS SYNC] ❌ Failed to sync coins:', error);
         }
@@ -768,11 +834,14 @@ export default function SessionRoom() {
           isTutor: currentIsTutor,
         });
         
-        // Navigate students to dashboard after final end
-        if (currentIsStudent) {
-          console.log('[NAVIGATION] → Student going to dashboard');
-          // Navigate immediately (tokens already synced)
-          navigate("/student/dashboard", { replace: true });
+        // Navigate students to rating page after final end
+        if (currentIsStudent && sessionId) {
+          console.log('[NAVIGATION] → Student going to rating page, sessionId:', sessionId);
+          enqueueSnack("Session ended. Redirecting to rating page...", "info");
+          // Navigate to rating page immediately (tokens already synced)
+          setTimeout(() => {
+            navigate(`/student/rate-session/${sessionId}`, { replace: true });
+          }, 300);
         } else if (currentIsTutor) {
           // For tutors, just go back to tutor dashboard
           console.log('[NAVIGATION] → Tutor going back to tutor dashboard');
@@ -947,6 +1016,8 @@ export default function SessionRoom() {
       try {
         await refreshBothCoins();
         console.log('[🪙 COINS SYNC] ✅ Both coins synced successfully from database');
+        // ✅ CRITICAL: Small delay to ensure localStorage updates are written before navigation
+        await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
         console.error('[🪙 COINS SYNC] ❌ Failed to sync coins:', error);
       }
@@ -961,10 +1032,12 @@ export default function SessionRoom() {
         isTutor: currentIsTutor,
       });
       
-      if (currentIsStudent) {
-        enqueueSnack("Session ended successfully. Redirecting to your dashboard...", "success");
-        console.log('[NAVIGATION] → Student going to dashboard');
-        navigate("/student/dashboard", { replace: true });
+      if (currentIsStudent && sessionId) {
+        enqueueSnack("Session ended successfully. Redirecting to rating page...", "success");
+        console.log('[NAVIGATION] → Student going to rating page, sessionId:', sessionId);
+        setTimeout(() => {
+          navigate(`/student/rate-session/${sessionId}`, { replace: true });
+        }, 300);
       } else if (currentIsTutor) {
         enqueueSnack("Session ended successfully. Redirecting to your dashboard...", "success");
         console.log('[NAVIGATION] → Tutor going to tutor dashboard');
@@ -1037,10 +1110,12 @@ export default function SessionRoom() {
         isTutor: currentIsTutor,
       });
       
-      if (currentIsStudent) {
-        enqueueSnack("Session ended successfully. Redirecting to your dashboard...", "success");
-        console.log('[NAVIGATION] → Student going to dashboard');
-        navigate("/student/dashboard", { replace: true });
+      if (currentIsStudent && sessionId) {
+        enqueueSnack("Session ended successfully. Redirecting to rating page...", "success");
+        console.log('[NAVIGATION] → Student going to rating page, sessionId:', sessionId);
+        setTimeout(() => {
+          navigate(`/student/rate-session/${sessionId}`, { replace: true });
+        }, 300);
       } else if (currentIsTutor) {
         enqueueSnack("Session ended successfully. Redirecting to your dashboard...", "success");
         console.log('[NAVIGATION] → Tutor going to tutor dashboard');
@@ -1063,7 +1138,7 @@ export default function SessionRoom() {
       sx={{
         minHeight: "100vh",
         width: "100vw",
-        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        background: "linear-gradient(135deg, #37353E 0%, #44444E 50%, #37353E 100%)",
         backgroundAttachment: "fixed",
         display: "flex",
         flexDirection: "column",
@@ -1161,7 +1236,12 @@ export default function SessionRoom() {
               <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
                 {/* Tutor: can start the session only when idle */}
                 {isTutor && timerStatus === "idle" && (
-                  <Button size="small" variant="contained" onClick={handleStartSession}>
+                  <Button 
+                    size="small" 
+                    variant="contained" 
+                    onClick={handleStartSession}
+                    sx={{ borderRadius: "12px" }}
+                  >
                     Start Session Timer
                   </Button>
                 )}
@@ -1174,6 +1254,7 @@ export default function SessionRoom() {
                       variant="contained"
                       disabled={extensionRequestPending}
                       onClick={handleStudentExtend}
+                      sx={{ borderRadius: "12px" }}
                     >
                       {extensionRequestPending ? "Request sent..." : "Extend 10 min"}
                     </Button>
@@ -1182,6 +1263,7 @@ export default function SessionRoom() {
                       variant="outlined"
                       color="error"
                       onClick={handleStudentEndNow}
+                      sx={{ borderRadius: "12px" }}
                     >
                       End Session
                     </Button>
@@ -1195,6 +1277,7 @@ export default function SessionRoom() {
                     variant="outlined"
                     color="error"
                     onClick={openEndConfirm}
+                    sx={{ borderRadius: "12px" }}
                   >
                     End Now
                   </Button>
@@ -1261,8 +1344,15 @@ export default function SessionRoom() {
             borderRadius: "28px",
             px: 3,
             py: 1.5,
-            background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
-            boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
+            background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+            transition: "all 0.3s ease",
+            boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+            "&:hover": {
+              transform: "translateY(-2px)",
+              boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+              background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+            },
+            boxShadow: "0 4px 12px rgba(113, 90, 90, 0.4)",
             textTransform: "none",
             fontWeight: 600,
             display: "flex",
@@ -1271,8 +1361,8 @@ export default function SessionRoom() {
             transition: "transform 0.2s ease, box-shadow 0.2s ease",
             "&:hover": {
               transform: "scale(1.05)",
-              boxShadow: "0 6px 16px rgba(79, 70, 229, 0.5)",
-              background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+              boxShadow: "0 6px 16px rgba(113, 90, 90, 0.5)",
+              background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
             },
           }}
         >
@@ -1365,7 +1455,7 @@ export default function SessionRoom() {
                       py: 1.5,
                       borderRadius: "12px",
                       background: own 
-                        ? "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)"
+                        ? "linear-gradient(135deg, #715A5A 0%, #8a6f6f 100%)"
                         : "rgba(51, 65, 85, 0.8)",
                       color: "white",
                       maxWidth: "80%",
@@ -1417,7 +1507,14 @@ export default function SessionRoom() {
               variant="contained" 
               type="submit"
               sx={{
-                background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+            transition: "all 0.3s ease",
+            boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
+            "&:hover": {
+              transform: "translateY(-2px)",
+              boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+              background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+            },
                 borderRadius: "20px",
                 px: 2,
                 py: 1,
@@ -1427,8 +1524,8 @@ export default function SessionRoom() {
                 transition: "transform 0.2s ease, box-shadow 0.2s ease",
                 "&:hover": {
                   transform: "scale(1.05)",
-                  boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
-                  background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                  boxShadow: "0 4px 12px rgba(113, 90, 90, 0.4)",
+                  background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
                 },
               }}
             >
@@ -1485,21 +1582,19 @@ export default function SessionRoom() {
             or completely end the session for everyone?
           </DialogContentText>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 3, flexDirection: "column", gap: 1, alignItems: "stretch" }}>
+        <DialogActions sx={{ px: 3, pb: 3, flexDirection: "column", gap: 1, alignItems: "center" }}>
           <Button
             variant="outlined"
-            fullWidth
             onClick={handleLeaveSession}
-            sx={{ textTransform: "none" }}
+            sx={{ textTransform: "none", minWidth: "200px" }}
           >
             Leave session (can rejoin)
           </Button>
           <Button
             variant="contained"
             color="error"
-            fullWidth
             onClick={handleHardEnd}
-            sx={{ textTransform: "none" }}
+            sx={{ textTransform: "none", minWidth: "200px" }}
           >
             Completely end session
           </Button>

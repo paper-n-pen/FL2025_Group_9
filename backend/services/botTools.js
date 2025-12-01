@@ -99,10 +99,15 @@ async function listTutorsBySubject(subject, limit = 5) {
     // But also try lowercase version for matching
     const normalizedSubject = subject.trim();
     const lowerSubject = normalizedSubject.toLowerCase();
-    console.log(`[DB_QUERY] Searching for tutors with subject: "${normalizedSubject}" (lowercase: "${lowerSubject}")`);
+    // Also create a version that handles common variations (e.g., "JavaScript" vs "Javascript")
+    const alternateSubject = normalizedSubject === 'JavaScript' ? 'Javascript' : (normalizedSubject === 'Javascript' ? 'JavaScript' : normalizedSubject);
+    console.log(`[DB_QUERY] Searching for tutors with subject: "${normalizedSubject}" (lowercase: "${lowerSubject}", alternate: "${alternateSubject}")`);
 
     // Query using TEXT[] array operations - case-insensitive matching
     // Handle special characters like +, # by using ILIKE and multiple matching strategies
+    // CRITICAL: Use comprehensive case-insensitive matching to find all variations
+    // Also handle common variations like "JavaScript" vs "Javascript"
+    // Also fetch stored average_rating and review_count from users table
     const result = await pool.query(
       `SELECT 
          u.id,
@@ -110,41 +115,71 @@ async function listTutorsBySubject(subject, limit = 5) {
          u.specialties as subjects,
          u.rate_per_10_min,
          u.bio,
+         u.average_rating,
+         u.review_count,
          COUNT(s.id) FILTER (WHERE s.status = 'completed') as completed_sessions,
          AVG(s.rating) FILTER (WHERE s.rating IS NOT NULL) as avg_rating,
          COUNT(s.rating) FILTER (WHERE s.rating IS NOT NULL) as ratings_count
        FROM users u
        LEFT JOIN sessions s ON s.tutor_id = u.id
        WHERE u.user_type = 'tutor'
-       AND (
-         -- Exact match (case-insensitive)
-         EXISTS (
-           SELECT 1 FROM unnest(u.specialties) AS spec
-           WHERE LOWER(TRIM(spec)) = LOWER($1)
-         )
-         -- Pattern match with lowercase (case-insensitive)
-         OR EXISTS (
-           SELECT 1 FROM unnest(u.specialties) AS spec
-           WHERE LOWER(TRIM(spec)) LIKE '%' || LOWER($1) || '%'
-         )
-         -- Pattern match preserving case (for C++ vs c++)
-         OR EXISTS (
-           SELECT 1 FROM unnest(u.specialties) AS spec
-           WHERE TRIM(spec) ILIKE '%' || $1 || '%'
-         )
-         -- Also try exact match with original case
-         OR EXISTS (
-           SELECT 1 FROM unnest(u.specialties) AS spec
-           WHERE TRIM(spec) = $2
-         )
+       AND EXISTS (
+         SELECT 1 FROM unnest(u.specialties) AS spec
+         WHERE 
+           -- Case-insensitive exact match using LOWER() - most reliable
+           LOWER(TRIM(spec)) = $1
+           OR LOWER(TRIM(spec)) = LOWER($2)
+           OR LOWER(TRIM(spec)) = LOWER($3)
+           -- Case-insensitive pattern match using LOWER() and LIKE
+           OR LOWER(TRIM(spec)) LIKE '%' || $1 || '%'
+           OR LOWER(TRIM(spec)) LIKE '%' || LOWER($2) || '%'
+           OR LOWER(TRIM(spec)) LIKE '%' || LOWER($3) || '%'
+           -- Also try ILIKE for pattern matching (handles special chars better)
+           OR TRIM(spec) ILIKE '%' || $1 || '%'
+           OR TRIM(spec) ILIKE '%' || $2 || '%'
+           OR TRIM(spec) ILIKE '%' || $3 || '%'
        )
-       GROUP BY u.id, u.username, u.specialties, u.rate_per_10_min, u.bio
+       GROUP BY u.id, u.username, u.specialties, u.rate_per_10_min, u.bio, u.average_rating, u.review_count
        ORDER BY u.rate_per_10_min ASC NULLS LAST, completed_sessions DESC
-       LIMIT $3`,
-      [lowerSubject, normalizedSubject, limit]
+       LIMIT $4`,
+      [lowerSubject, normalizedSubject, alternateSubject, limit]
     );
 
-    console.log(`[DB_ROWS] Found ${result.rows.length} tutors for subject "${normalizedSubject}"`);
+    console.log(`[DB_ROWS] Found ${result.rows.length} tutors for subject "${normalizedSubject}" (searched with: lowercase="${lowerSubject}", normalized="${normalizedSubject}", alternate="${alternateSubject}")`);
+    
+    // Debug: Log what we're searching for and what was found
+    if (result.rows.length > 0) {
+      console.log(`[DB_DEBUG] Found tutors: ${result.rows.map(r => r.name).join(', ')}`);
+      console.log(`[DB_DEBUG] Tutor specialties: ${result.rows.map(r => `${r.name}: [${r.subjects.join(', ')}]`).join('; ')}`);
+    } else {
+      // If no results, check what specialties actually exist in the database
+      const debugResult = await pool.query(
+        `SELECT DISTINCT unnest(specialties) as spec 
+         FROM users 
+         WHERE user_type = 'tutor' 
+         ORDER BY spec`,
+        []
+      );
+      const allSpecialties = debugResult.rows.map(r => r.spec);
+      console.log(`[DB_DEBUG] Available specialties in database: ${allSpecialties.join(', ')}`);
+      console.log(`[DB_DEBUG] Searching for: "${lowerSubject}" (lowercase) and "${normalizedSubject}" (normalized)`);
+      
+      // Test if the subject exists in any form
+      const testResult = await pool.query(
+        `SELECT DISTINCT unnest(specialties) as spec 
+         FROM users 
+         WHERE user_type = 'tutor' 
+           AND (
+             TRIM(spec) ILIKE $1
+             OR TRIM(spec) ILIKE $2
+             OR TRIM(spec) ILIKE '%' || $1 || '%'
+             OR TRIM(spec) ILIKE '%' || $2 || '%'
+           )
+         ORDER BY spec`,
+        [lowerSubject, normalizedSubject]
+      );
+      console.log(`[DB_DEBUG] Test query found specialties: ${testResult.rows.map(r => r.spec).join(', ')}`);
+    }
 
     return result.rows.map(row => {
       // The query uses 'u.specialties as subjects', so access row.subjects (not row.specialties)
@@ -168,15 +203,31 @@ async function listTutorsBySubject(subject, limit = 5) {
       // Round to nearest whole number to show exactly what tutor set
       const pricePerHour = ratePer10Min !== null ? Math.round(ratePer10Min * 6) : null;
 
+      // Prefer stored rating from users table, fall back to calculated from sessions
+      const storedRating = row.average_rating !== null && row.average_rating !== undefined
+        ? Number(row.average_rating)
+        : null;
+      const calculatedRating = row.avg_rating !== null && row.avg_rating !== undefined
+        ? Number(row.avg_rating)
+        : null;
+      const finalRating = storedRating !== null ? storedRating : calculatedRating;
+      
+      // Prefer stored review_count from users table, fall back to calculated from sessions
+      const storedReviewCount = row.review_count !== null && row.review_count !== undefined
+        ? parseInt(row.review_count, 10)
+        : null;
+      const calculatedReviewCount = row.ratings_count !== null && row.ratings_count !== undefined
+        ? parseInt(row.ratings_count, 10)
+        : null;
+      const finalReviewCount = storedReviewCount !== null ? storedReviewCount : (calculatedReviewCount !== null ? calculatedReviewCount : 0);
+
       return {
         name: row.name || row.username,
         subjects: specialties,
         price_per_hour: pricePerHour,
         rate_per_10_min: ratePer10Min,
-        rating: row.avg_rating !== null && row.avg_rating !== undefined
-          ? Number(row.avg_rating).toFixed(1)
-          : null,
-        reviews_count: parseInt(row.ratings_count || row.completed_sessions || '0', 10),
+        rating: finalRating !== null ? finalRating.toFixed(1) : null,
+        reviews_count: finalReviewCount,
       };
     });
   } catch (error) {
@@ -289,13 +340,15 @@ async function listAllTutors(limit = 10) {
          u.username,
          u.specialties,
          u.rate_per_10_min,
+         u.average_rating,
+         u.review_count,
          COUNT(s.id) FILTER (WHERE s.status = 'completed') as completed_sessions,
          AVG(s.rating) FILTER (WHERE s.rating IS NOT NULL) as avg_rating,
          COUNT(s.rating) FILTER (WHERE s.rating IS NOT NULL) as ratings_count
        FROM users u
        LEFT JOIN sessions s ON s.tutor_id = u.id
        WHERE u.user_type = 'tutor'
-       GROUP BY u.id, u.username, u.specialties, u.rate_per_10_min
+       GROUP BY u.id, u.username, u.specialties, u.rate_per_10_min, u.average_rating, u.review_count
        ORDER BY u.username
        LIMIT $1`,
       [limit]
@@ -309,10 +362,31 @@ async function listAllTutors(limit = 10) {
       // Round to nearest whole number to show exactly what tutor set
       const pricePerHour = ratePer10Min !== null ? Math.round(ratePer10Min * 6) : null;
 
+      // Prefer stored rating from users table, fall back to calculated from sessions
+      const storedRating = row.average_rating !== null && row.average_rating !== undefined
+        ? Number(row.average_rating)
+        : null;
+      const calculatedRating = row.avg_rating !== null && row.avg_rating !== undefined
+        ? Number(row.avg_rating)
+        : null;
+      const finalRating = storedRating !== null ? storedRating : calculatedRating;
+      
+      // Prefer stored review_count from users table, fall back to calculated from sessions
+      const storedReviewCount = row.review_count !== null && row.review_count !== undefined
+        ? parseInt(row.review_count, 10)
+        : null;
+      const calculatedReviewCount = row.ratings_count !== null && row.ratings_count !== undefined
+        ? parseInt(row.ratings_count, 10)
+        : null;
+      const finalReviewCount = storedReviewCount !== null ? storedReviewCount : (calculatedReviewCount !== null ? calculatedReviewCount : 0);
+
       return {
         name: row.username,
         subjects: specialties,
         price_per_hour: pricePerHour,
+        rate_per_10_min: ratePer10Min,
+        rating: finalRating !== null ? finalRating.toFixed(1) : null,
+        reviews_count: finalReviewCount,
         rate_per_10_min: ratePer10Min,
         rating: row.avg_rating !== null && row.avg_rating !== undefined
           ? Number(row.avg_rating).toFixed(1)

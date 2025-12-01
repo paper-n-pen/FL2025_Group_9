@@ -17,7 +17,7 @@ function getDefaultBaseURL() {
 }
 
 const LLM_BASE_URL = process.env.LLM_BASE_URL || getDefaultBaseURL();
-const LLM_MODEL = process.env.LLM_MODEL || 'llama3';
+const LLM_MODEL = process.env.LLM_MODEL || 'llama3.2:3b';
 
 /**
  * Send chat completion request to Ollama

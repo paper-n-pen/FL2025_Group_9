@@ -182,7 +182,7 @@ export default function TutorProfile() {
       sx={{
         minHeight: "100vh",
         width: "100%",
-        background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+        background: "linear-gradient(135deg, #37353E 0%, #44444E 50%, #37353E 100%)",
         backgroundAttachment: "fixed",
         display: "flex",
         justifyContent: "center",
@@ -240,13 +240,13 @@ export default function TutorProfile() {
             borderRadius: 4,
             width: "100%",
             boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-            backgroundColor: "#1e293b",
+            backgroundColor: "#44444E",
           }}
         >
           <CardHeader
             title="Edit Your Profile"
             sx={{
-              backgroundColor: "#334155",
+              backgroundColor: "#5a5a66",
               py: 2,
               px: 3,
               borderTopLeftRadius: 4,
@@ -337,21 +337,22 @@ export default function TutorProfile() {
                   type="submit"
                   disabled={loading}
                   sx={{ 
-                    background: "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)",
+                    background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
                     borderRadius: "16px",
                     px: 4,
                     py: 1.5,
                     minWidth: "180px",
                     textTransform: "none",
                     fontWeight: 600,
-                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                    transition: "all 0.3s ease",
+                    boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
                     "&:hover": {
-                      transform: "scale(1.05)",
-                      boxShadow: "0 4px 12px rgba(79, 70, 229, 0.4)",
-                      background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
+                      transform: "translateY(-2px)",
+                      boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
+                      background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
                     },
                     "&:disabled": {
-                      background: "rgba(79, 70, 229, 0.5)",
+                      background: "rgba(139, 92, 246, 0.5)",
                     },
                   }}
                 >

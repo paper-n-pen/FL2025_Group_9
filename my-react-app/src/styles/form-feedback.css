@@ -17,9 +17,9 @@
 }
 
 .password-feedback.match {
-  color: #16a34a;
+  color: #715A5A;
 }
 
 .password-feedback.mismatch {
-  color: #dc2626;
+  color: #5a4848;
 }
