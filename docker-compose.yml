@@ -1,6 +1,10 @@
 services:
   frontend:
-    build: ./my-react-app
+    build:
+      context: ./my-react-app
+      args:
+        - VITE_BACKEND_URL=http://localhost:3000
+        - VITE_API_URL=http://localhost:3000
     ports:
       - "80:80"
     depends_on:
@@ -14,6 +18,7 @@ services:
       - ./backend:/app
       - /app/node_modules
     environment:
+      PORT: 3000
       DATABASE_URL: postgresql://myapp_user:secret@db:5432/myapp_db
       LLM_BASE_URL: ${LLM_BASE_URL:-http://ollama:11434/v1}
       LLM_MODEL: ${LLM_MODEL:-llama3}

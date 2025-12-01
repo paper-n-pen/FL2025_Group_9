@@ -8,7 +8,13 @@ RUN npm install
 
 COPY . .
 
-RUN npm run build
+ARG VITE_BACKEND_URL
+ENV VITE_BACKEND_URL=$VITE_BACKEND_URL
+
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+
+RUN npx vite build
 
 FROM nginx:1.28-alpine
 

@@ -277,12 +277,50 @@ export default function StudentDashboard() {
     socket.on("session-ready", onSessionReady);
     socket.on("session-ended", onSessionEnded);
 
+    // ✅ Refresh coins from backend when dashboard loads
+    const refreshCoinsFromBackend = async () => {
+      if (!studentUser?.id) return;
+      
+      try {
+        const url = `${apiPath("/me")}?expectedUserId=${studentUser.id}`;
+        const res = await api.get(url);
+        const u = res?.user;
+        
+        if (u && u.id === studentUser.id && u.tokens !== undefined) {
+          const updatedStudent = {
+            ...studentUser,
+            tokens: u.tokens,
+            coins: u.tokens,
+          };
+          setStudentUser(updatedStudent);
+          storeAuthState("student", null, updatedStudent);
+          
+          console.log('[🪙 COINS] ✅ Refreshed student coins from backend:', {
+            userId: u.id,
+            coins: u.tokens,
+          });
+          
+          // Dispatch event to update StudentNavbar
+          window.dispatchEvent(new CustomEvent('token-update', {
+            detail: { userId: u.id, tokens: u.tokens, coins: u.tokens }
+          }));
+        }
+      } catch (err) {
+        console.warn('[🪙 COINS] ⚠️ Failed to refresh coins from backend:', err);
+      }
+    };
+
+    // Refresh coins on mount and every 30 seconds
+    refreshCoinsFromBackend();
+    const coinsInterval = setInterval(refreshCoinsFromBackend, 30000);
+
     return () => {
       if (studentUser?.id) socket.emit("leave-student-room", studentUser.id);
       socket.off("tutor-accepted-query", onTutorAccepted);
       socket.off("tutor-confirmed", onTutorConfirmed);
       socket.off("session-ready", onSessionReady);
       socket.off("session-ended", onSessionEnded);
+      clearInterval(coinsInterval);
     };
   }, [fetchTutorResponses, studentUser?.id]);
 

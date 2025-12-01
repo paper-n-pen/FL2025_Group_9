@@ -447,29 +447,64 @@ export default function SessionRoom() {
         console.warn('[🪙 COINS SYNC] ⚠️ Student coins API did not return ok=true');
       }
 
-      // Update tutor coins - ALWAYS update if tutorId matches (for session end scenarios)
+      // Update tutor coins - ONLY update if tutorId matches the current logged-in tutor
       if (tutorCoinsResp && tutorCoinsResp.ok && tutorId) {
-        // ✅ CRITICAL: Always update tutor coins if tutorId matches
-        // This ensures coins are preserved even if tutor navigates away
-        const currentTutorFromStorage = getAuthStateForType("tutor").user;
+        // ✅ CRITICAL: Check sessionStorage first to get the correct logged-in tutor ID
+        const tabTutorId = sessionStorage.getItem('tabTutorId');
+        const tabTutorData = sessionStorage.getItem('tabTutorData');
+        let loggedInTutorId: number | null = null;
+        let loggedInTutor: any = null;
         
-        // If there's a tutor in storage, preserve their data; otherwise create minimal tutor data
-        const tutorData = currentTutorFromStorage && currentTutorFromStorage.id === tutorId
-          ? {
-              ...currentTutorFromStorage, // Preserve all existing tutor data
-              userType: 'tutor',
-              tokens: tutorCoinsResp.coins,
-              coins: tutorCoinsResp.coins,
+        if (tabTutorId && tabTutorData) {
+          try {
+            loggedInTutor = JSON.parse(tabTutorData);
+            if (loggedInTutor && loggedInTutor.id && loggedInTutor.id.toString() === tabTutorId) {
+              loggedInTutorId = Number(loggedInTutor.id);
             }
-          : {
-              id: tutorId,
-              userType: 'tutor',
-              tokens: tutorCoinsResp.coins,
-              coins: tutorCoinsResp.coins,
-              username: currentTutorFromStorage?.username || `Tutor ${tutorId}`,
-            };
+          } catch (e) {
+            // If parsing fails, fall back to localStorage
+          }
+        }
         
-        storeAuthState('tutor', null, tutorData);
+        // Fallback to localStorage if sessionStorage doesn't have it
+        if (!loggedInTutorId) {
+          const currentTutorFromStorage = getAuthStateForType("tutor").user;
+          if (currentTutorFromStorage && currentTutorFromStorage.id) {
+            loggedInTutorId = Number(currentTutorFromStorage.id);
+            loggedInTutor = currentTutorFromStorage;
+          }
+        }
+        
+        // ✅ CRITICAL: Only update tutor coins if the session tutor matches the logged-in tutor
+        if (loggedInTutorId && loggedInTutorId === tutorId) {
+          const tutorData = loggedInTutor
+            ? {
+                ...loggedInTutor, // Preserve all existing tutor data
+                userType: 'tutor',
+                tokens: tutorCoinsResp.coins,
+                coins: tutorCoinsResp.coins,
+              }
+            : {
+                id: tutorId,
+                userType: 'tutor',
+                tokens: tutorCoinsResp.coins,
+                coins: tutorCoinsResp.coins,
+                username: `Tutor ${tutorId}`,
+              };
+          
+          storeAuthState('tutor', null, tutorData);
+          
+          // Also update sessionStorage
+          if (tabTutorId && tabTutorId === tutorId.toString()) {
+            sessionStorage.setItem('tabTutorData', JSON.stringify(tutorData));
+          }
+        } else {
+          console.warn('[🪙 COINS SYNC] ⚠️ Skipping tutor coin update - tutor ID mismatch:', {
+            sessionTutorId: tutorId,
+            loggedInTutorId: loggedInTutorId,
+            action: 'Not updating coins for different tutor'
+          });
+        }
         
         // ✅ CRITICAL: Dispatch event to update TutorNavbar immediately
         // Dispatch multiple times to ensure it's caught

@@ -148,9 +148,11 @@ export default function TutorProfile() {
         return;
       }
 
-      const normalizedRate = formData.ratePer10Min
+      // ✅ CRITICAL: Send null if rate is empty/0, otherwise send the number
+      // Backend expects null for "no rate set", not 0
+      const normalizedRate = formData.ratePer10Min && formData.ratePer10Min !== "" && Number(formData.ratePer10Min) > 0
         ? Number(Number(formData.ratePer10Min).toFixed(2))
-        : 0;
+        : null;
 
       await api.put(apiPath("/queries/profile"), {
         ...formData,

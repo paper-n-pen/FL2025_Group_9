@@ -36,10 +36,64 @@ export default function TutorNavbar({
     location.pathname.startsWith("/tutor/login") ||
     location.pathname.startsWith("/tutor/setup");
 
-  // Load tutor user from localStorage ONLY
-  // ✅ TUTOR-SPECIFIC: Only reads from localStorage['tutorUser']
+  // Load tutor user - prioritize sessionStorage (tab-specific) over localStorage
+  // ✅ CRITICAL: Check sessionStorage FIRST to get the correct tutor ID for this tab
   const loadTutorUser = useCallback(() => {
-    // Force a fresh read from localStorage (don't use any cached values)
+    // ✅ CRITICAL: Check sessionStorage FIRST (tab-specific, never cleared by other tabs)
+    const tabTutorId = sessionStorage.getItem('tabTutorId');
+    const tabTutorData = sessionStorage.getItem('tabTutorData');
+    
+    if (tabTutorId && tabTutorData) {
+      try {
+        const parsedTutor = JSON.parse(tabTutorData);
+        if (parsedTutor && parsedTutor.id && parsedTutor.id.toString() === tabTutorId) {
+          // ✅ CRITICAL: If localStorage has a different user ID, clear it and use sessionStorage
+          const tutorUserJson = localStorage.getItem('tutorUser');
+          if (tutorUserJson) {
+            try {
+              const localStorageTutor = JSON.parse(tutorUserJson);
+              if (localStorageTutor.id && localStorageTutor.id !== parsedTutor.id) {
+                console.warn('[TUTOR NAVBAR] 🚨 localStorage has different user ID, clearing it:', {
+                  localStorageId: localStorageTutor.id,
+                  sessionStorageId: parsedTutor.id,
+                  action: 'Clearing localStorage and using sessionStorage data'
+                });
+                localStorage.removeItem('tutorUser');
+              }
+            } catch (e) {
+              // If parsing fails, clear localStorage
+              localStorage.removeItem('tutorUser');
+            }
+          }
+          
+          // Map tokens to coins for frontend consistency
+          const userWithCoins = {
+            ...parsedTutor,
+            coins: parsedTutor.tokens ?? parsedTutor.coins ?? 0,
+          };
+          
+          setUser((prevUser: any) => {
+            // Always update if coins changed or user ID changed
+            if (prevUser?.id === userWithCoins.id && prevUser?.coins === userWithCoins.coins) {
+              return prevUser; // Return same reference to prevent re-render
+            }
+            
+            console.log('[TUTOR NAVBAR] ✅ Updating tutor user from sessionStorage:', {
+              userId: userWithCoins.id,
+              oldCoins: prevUser?.coins,
+              newCoins: userWithCoins.coins,
+            });
+            
+            return userWithCoins;
+          });
+          return; // Exit early - don't check localStorage
+        }
+      } catch (e) {
+        // If parsing fails, fall through to localStorage
+      }
+    }
+    
+    // Fallback to localStorage if sessionStorage doesn't have it
     const userJson = localStorage.getItem('tutorUser');
     
     if (userJson) {
@@ -74,7 +128,7 @@ export default function TutorNavbar({
             return prevUser; // Return same reference to prevent re-render
           }
           
-          console.log('[TUTOR NAVBAR] ✅ Updating tutor user:', {
+          console.log('[TUTOR NAVBAR] ✅ Updating tutor user from localStorage:', {
             userId: userWithCoins.id,
             oldCoins: prevUser?.coins,
             newCoins: userWithCoins.coins,
@@ -242,18 +296,31 @@ export default function TutorNavbar({
         </Box>
 
         <Box display="flex" gap={1} alignItems="center">
-          {/* 🪙 TUTOR COIN DISPLAY - Always read fresh from localStorage to ensure latest value */}
+          {/* 🪙 TUTOR COIN DISPLAY - Always read fresh from sessionStorage first, then localStorage */}
           {(() => {
-            // Always read fresh from localStorage on every render to ensure we show latest coins
-            const freshUserJson = localStorage.getItem('tutorUser');
+            // ✅ CRITICAL: Check sessionStorage FIRST (tab-specific), then localStorage
             let displayCoins = user?.coins;
             
-            if (freshUserJson) {
+            const tabTutorData = sessionStorage.getItem('tabTutorData');
+            if (tabTutorData) {
               try {
-                const freshUser = JSON.parse(freshUserJson);
+                const freshUser = JSON.parse(tabTutorData);
                 displayCoins = freshUser.tokens ?? freshUser.coins ?? user?.coins;
               } catch (e) {
-                // Fallback to state value
+                // If parsing fails, fall through to localStorage
+              }
+            }
+            
+            // Fallback to localStorage if sessionStorage doesn't have it
+            if (displayCoins === undefined || displayCoins === null) {
+              const freshUserJson = localStorage.getItem('tutorUser');
+              if (freshUserJson) {
+                try {
+                  const freshUser = JSON.parse(freshUserJson);
+                  displayCoins = freshUser.tokens ?? freshUser.coins ?? user?.coins;
+                } catch (e) {
+                  // Fallback to state value
+                }
               }
             }
             

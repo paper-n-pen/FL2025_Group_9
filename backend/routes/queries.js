@@ -125,9 +125,38 @@ router.post('/post', async (req, res) => {
 // (forgiving specialty filter)
 // ------------------------
 router.get('/tutor/:tutorId', async (req, res) => {
-  const tutorId = Number(req.params.tutorId);
-  if (!Number.isInteger(tutorId)) {
+  const tutorIdFromParam = Number(req.params.tutorId);
+  if (!Number.isInteger(tutorIdFromParam)) {
     return res.status(400).json({ message: 'Invalid tutorId' });
+  }
+
+  // ✅ CRITICAL: Validate tutor ID from JWT token if available
+  let authenticatedTutorId = null;
+  try {
+    const token = req.cookies?.token || req.cookies?.authToken;
+    if (token) {
+      const jwt = require('jsonwebtoken');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-secret-change-me");
+      if (decoded.role === 'tutor') {
+        authenticatedTutorId = Number(decoded.id);
+        console.log('[NEW QUERIES] Authenticated tutor ID from JWT:', authenticatedTutorId);
+      }
+    }
+  } catch (e) {
+    // JWT verification failed, continue with param tutorId
+  }
+
+  // ✅ CRITICAL: If JWT tutor ID doesn't match param tutorId, use JWT ID (more secure)
+  const finalTutorId = authenticatedTutorId && authenticatedTutorId !== tutorIdFromParam 
+    ? authenticatedTutorId 
+    : tutorIdFromParam;
+
+  if (authenticatedTutorId && authenticatedTutorId !== tutorIdFromParam) {
+    console.warn('[NEW QUERIES] 🚨 TUTOR ID MISMATCH - Using JWT ID instead of param ID:', {
+      paramTutorId: tutorIdFromParam,
+      jwtTutorId: authenticatedTutorId,
+      action: 'Using JWT tutor ID for new queries'
+    });
   }
 
   try {
@@ -135,7 +164,7 @@ router.get('/tutor/:tutorId', async (req, res) => {
       `SELECT id, user_type, specialties, rate_per_10_min
          FROM users
         WHERE id = $1`,
-      [tutorId]
+      [finalTutorId]
     );
 
     if (tutorResult.rows.length === 0 || tutorResult.rows[0].user_type !== 'tutor') {
@@ -148,7 +177,7 @@ router.get('/tutor/:tutorId', async (req, res) => {
       .map((s) => String(s).trim().toLowerCase())
       .filter(Boolean);
 
-    const params = [tutorId];
+    const params = [finalTutorId];
     let sql = `
       SELECT q.id, q.subject, q.subtopic, q.query_text, q.student_id, q.status, q.created_at,
              q.accepted_tutor_id, s.username AS student_name
@@ -208,9 +237,38 @@ router.get('/tutor/:tutorId', async (req, res) => {
 // GET /queries/tutor/:tutorId/accepted-queries
 // ------------------------
 router.get('/tutor/:tutorId/accepted-queries', async (req, res) => {
-  const tutorId = Number(req.params.tutorId);
-  if (!Number.isInteger(tutorId)) {
+  const tutorIdFromParam = Number(req.params.tutorId);
+  if (!Number.isInteger(tutorIdFromParam)) {
     return res.status(400).json({ message: 'Invalid tutorId' });
+  }
+
+  // ✅ CRITICAL: Validate tutor ID from JWT token if available
+  let authenticatedTutorId = null;
+  try {
+    const token = req.cookies?.token || req.cookies?.authToken;
+    if (token) {
+      const jwt = require('jsonwebtoken');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-secret-change-me");
+      if (decoded.role === 'tutor') {
+        authenticatedTutorId = Number(decoded.id);
+        console.log('[ACCEPTED QUERIES] Authenticated tutor ID from JWT:', authenticatedTutorId);
+      }
+    }
+  } catch (e) {
+    // JWT verification failed, continue with param tutorId
+  }
+
+  // ✅ CRITICAL: If JWT tutor ID doesn't match param tutorId, use JWT ID (more secure)
+  const finalTutorId = authenticatedTutorId && authenticatedTutorId !== tutorIdFromParam 
+    ? authenticatedTutorId 
+    : tutorIdFromParam;
+
+  if (authenticatedTutorId && authenticatedTutorId !== tutorIdFromParam) {
+    console.warn('[ACCEPTED QUERIES] 🚨 TUTOR ID MISMATCH - Using JWT ID instead of param ID:', {
+      paramTutorId: tutorIdFromParam,
+      jwtTutorId: authenticatedTutorId,
+      action: 'Using JWT tutor ID for accepted queries'
+    });
   }
 
   try {
@@ -218,7 +276,7 @@ router.get('/tutor/:tutorId/accepted-queries', async (req, res) => {
       `SELECT id, user_type, rate_per_10_min
          FROM users
         WHERE id = $1`,
-      [tutorId]
+      [finalTutorId]
     );
 
     if (tutorResult.rows.length === 0 || tutorResult.rows[0].user_type !== 'tutor') {
@@ -263,7 +321,7 @@ router.get('/tutor/:tutorId/accepted-queries', async (req, res) => {
         WHERE qa.status IN ('PENDING', 'SELECTED', 'EXPIRED')
           AND (latest_session.status IS NULL OR latest_session.status != 'ended')
      ORDER BY COALESCE(q.updated_at, q.created_at) DESC`,
-      [tutorId]
+      [finalTutorId]
     );
 
     const acceptedQueries = queriesResult.rows.map((row) => {
@@ -291,10 +349,56 @@ router.get('/tutor/:tutorId/accepted-queries', async (req, res) => {
 router.post('/accept', async (req, res) => {
   const { queryId, tutorId } = req.body;
 
+  // ✅ CRITICAL: Log the raw request body to debug tutor ID issues
+  console.log('[QUERY ACCEPT] Raw request body:', {
+    queryId,
+    tutorId,
+    bodyKeys: Object.keys(req.body),
+    fullBody: req.body
+  });
+
   const queryIdNumber = Number(queryId);
   const tutorIdNumber = Number(tutorId);
 
-  if (!Number.isInteger(queryIdNumber) || !Number.isInteger(tutorIdNumber)) {
+  // ✅ CRITICAL: Validate tutor ID from JWT token - THIS IS THE SOURCE OF TRUTH
+  let authenticatedTutorId = null;
+  try {
+    const token = req.cookies?.token || req.cookies?.authToken;
+    if (token) {
+      const jwt = require('jsonwebtoken');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-secret-change-me");
+      if (decoded.role === 'tutor') {
+        authenticatedTutorId = Number(decoded.id);
+        console.log('[QUERY ACCEPT] ✅ Authenticated tutor ID from JWT:', authenticatedTutorId);
+      } else {
+        console.warn('[QUERY ACCEPT] ⚠️ JWT role is not tutor:', decoded.role);
+      }
+    } else {
+      console.warn('[QUERY ACCEPT] ⚠️ No JWT token found in cookies');
+    }
+  } catch (e) {
+    console.error('[QUERY ACCEPT] ❌ JWT verification failed:', e.message);
+    // JWT verification failed - this is a problem, but continue with body tutorId as fallback
+  }
+
+  // ✅ CRITICAL: ALWAYS use JWT tutor ID if available (it's the source of truth)
+  // If JWT is not available, reject the request (security issue)
+  if (!authenticatedTutorId) {
+    console.error('[QUERY ACCEPT] 🚨 NO JWT TUTOR ID - Rejecting request for security');
+    return res.status(401).json({ message: 'Authentication required. Please log in again.' });
+  }
+
+  const finalTutorId = authenticatedTutorId;
+
+  if (authenticatedTutorId !== tutorIdNumber) {
+    console.warn('[QUERY ACCEPT] 🚨 TUTOR ID MISMATCH - Using JWT ID instead of body ID:', {
+      bodyTutorId: tutorIdNumber,
+      jwtTutorId: authenticatedTutorId,
+      action: 'Using JWT tutor ID (source of truth) for query acceptance'
+    });
+  }
+
+  if (!Number.isInteger(queryIdNumber) || !Number.isInteger(finalTutorId)) {
     return res.status(400).json({ message: 'Invalid queryId or tutorId' });
   }
 
@@ -329,7 +433,7 @@ router.post('/accept', async (req, res) => {
          FROM users
         WHERE id = $1
         FOR UPDATE`,
-      [tutorIdNumber]
+      [finalTutorId]
     );
 
     if (tutorResult.rows.length === 0 || tutorResult.rows[0].user_type !== 'tutor') {
@@ -338,12 +442,24 @@ router.post('/accept', async (req, res) => {
     }
 
     const tutorRow = tutorResult.rows[0];
+    
+    // ✅ CRITICAL: Verify the tutor ID matches what we're about to insert
+    if (tutorRow.id !== finalTutorId) {
+      console.error('[QUERY ACCEPT] 🚨 CRITICAL MISMATCH - Tutor ID from DB does not match finalTutorId!', {
+        tutorRowId: tutorRow.id,
+        finalTutorId: finalTutorId,
+        tutorUsername: tutorRow.username,
+        action: 'ABORTING - This should never happen!'
+      });
+      await client.query('ROLLBACK');
+      return res.status(500).json({ message: 'Internal error: Tutor ID mismatch' });
+    }
 
     // Check if acceptance already exists
     const existingAcceptance = await client.query(
       `SELECT status FROM query_acceptances 
        WHERE query_id = $1 AND tutor_id = $2`,
-      [queryIdNumber, tutorIdNumber]
+      [queryIdNumber, finalTutorId]
     );
 
     if (existingAcceptance.rows.length > 0) {
@@ -357,16 +473,31 @@ router.post('/accept', async (req, res) => {
           `UPDATE query_acceptances 
            SET status = 'PENDING', accepted_at = CURRENT_TIMESTAMP
            WHERE query_id = $1 AND tutor_id = $2`,
-          [queryIdNumber, tutorIdNumber]
+          [queryIdNumber, finalTutorId]
         );
       }
     } else {
       // Insert new acceptance
+      // ✅ CRITICAL: Log before INSERT to debug tutor ID issues
+      console.log('[QUERY ACCEPT] 🔍 About to INSERT acceptance:', {
+        queryId: queryIdNumber,
+        finalTutorId: finalTutorId,
+        bodyTutorId: tutorIdNumber,
+        jwtTutorId: authenticatedTutorId,
+        tutorUsername: tutorRow.username
+      });
+      
       await client.query(
         `INSERT INTO query_acceptances (query_id, tutor_id, status)
          VALUES ($1, $2, 'PENDING')`,
-        [queryIdNumber, tutorIdNumber]
+        [queryIdNumber, finalTutorId]
       );
+      
+      console.log('[QUERY ACCEPT] ✅ INSERTED acceptance successfully:', {
+        queryId: queryIdNumber,
+        tutorId: finalTutorId,
+        tutorUsername: tutorRow.username
+      });
     }
 
     // Update query status: if OPEN/pending, move to PENDING_STUDENT_SELECTION
@@ -382,12 +513,17 @@ router.post('/accept', async (req, res) => {
     await client.query(
       `DELETE FROM query_declines
         WHERE query_id = $1 AND tutor_id = $2`,
-      [queryIdNumber, tutorIdNumber]
+      [queryIdNumber, finalTutorId]
     );
 
     await client.query('COMMIT');
 
-    console.log('Tutor accepted query:', { queryId: queryIdNumber, tutorId: tutorIdNumber });
+    console.log('[QUERY ACCEPT] ✅ Query accepted successfully:', {
+      queryId: queryIdNumber,
+      tutorId: finalTutorId,
+      bodyTutorId: tutorIdNumber,
+      jwtTutorId: authenticatedTutorId
+    });
 
     if (io) {
       // Notify student that a tutor has accepted
@@ -471,13 +607,51 @@ router.get('/all', async (_req, res) => {
 router.post('/session', async (req, res) => {
   const { queryId, tutorId, studentId } = req.body;
 
+  // ✅ CRITICAL: Log the raw request body to debug tutor ID issues
+  console.log('[SESSION CREATE] Raw request body:', {
+    queryId,
+    tutorId,
+    studentId,
+    bodyKeys: Object.keys(req.body),
+    fullBody: req.body
+  });
+
   const queryIdNumber = Number(queryId);
   const tutorIdNumber = Number(tutorId);
   const studentIdNumber = Number(studentId);
 
+  // ✅ CRITICAL: Validate tutor ID from JWT token if available
+  let authenticatedTutorId = null;
+  try {
+    const token = req.cookies?.token || req.cookies?.authToken;
+    if (token) {
+      const jwt = require('jsonwebtoken');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-secret-change-me");
+      if (decoded.role === 'tutor') {
+        authenticatedTutorId = Number(decoded.id);
+        console.log('[SESSION CREATE] Authenticated tutor ID from JWT:', authenticatedTutorId);
+      }
+    }
+  } catch (e) {
+    // JWT verification failed, continue with body tutorId
+  }
+
+  // ✅ CRITICAL: If JWT tutor ID doesn't match body tutorId, use JWT ID (more secure)
+  const finalTutorId = authenticatedTutorId && authenticatedTutorId !== tutorIdNumber 
+    ? authenticatedTutorId 
+    : tutorIdNumber;
+
+  if (authenticatedTutorId && authenticatedTutorId !== tutorIdNumber) {
+    console.warn('[SESSION CREATE] 🚨 TUTOR ID MISMATCH - Using JWT ID instead of body ID:', {
+      bodyTutorId: tutorIdNumber,
+      jwtTutorId: authenticatedTutorId,
+      action: 'Using JWT tutor ID for session creation'
+    });
+  }
+
   if (
     !Number.isInteger(queryIdNumber) ||
-    !Number.isInteger(tutorIdNumber) ||
+    !Number.isInteger(finalTutorId) ||
     !Number.isInteger(studentIdNumber)
   ) {
     return res.status(400).json({ message: 'Invalid identifiers provided' });
@@ -522,7 +696,7 @@ router.post('/session', async (req, res) => {
       `INSERT INTO sessions (query_id, tutor_id, student_id)
        VALUES ($1, $2, $3)
     RETURNING id, start_time`,
-      [queryIdNumber, tutorIdNumber, studentIdNumber]
+      [queryIdNumber, finalTutorId, studentIdNumber]
     );
 
     await client.query(
@@ -535,26 +709,29 @@ router.post('/session', async (req, res) => {
 
     await client.query('COMMIT');
 
-    console.log('Session created:', {
+    console.log('[SESSION CREATE] ✅ Session created successfully:', {
       queryId: queryIdNumber,
-      tutorId: tutorIdNumber,
-      studentId: studentIdNumber
+      tutorId: finalTutorId,
+      studentId: studentIdNumber,
+      bodyTutorId: tutorIdNumber,
+      jwtTutorId: authenticatedTutorId,
+      sessionId: sessionResult.rows[0].id
     });
 
     // Emit real-time events to notify both tutor and student
     if (io) {
-      // Notify tutor that session is ready
-      io.to(`tutor-${tutorIdNumber}`).emit('session-created', {
+      // Notify tutor that session is ready - use finalTutorId
+      io.to(`tutor-${finalTutorId}`).emit('session-created', {
         queryId: queryIdNumber.toString(),
         sessionId: sessionResult.rows[0].id.toString(),
         message: 'Session created successfully. You can now enter the session.'
       });
 
-      // Notify student that session is ready
+      // Notify student that session is ready - use finalTutorId
       io.to(`student-${studentIdNumber}`).emit('session-ready', {
         queryId: queryIdNumber.toString(),
         sessionId: sessionResult.rows[0].id.toString(),
-        tutorId: tutorIdNumber.toString(),
+        tutorId: finalTutorId.toString(),
         message: 'Tutor has started the session. You can now enter.'
       });
     }
@@ -1299,7 +1476,18 @@ router.get('/student/:studentId/responses', async (req, res) => {
     ) s ON TRUE
         WHERE q.student_id = $1
           AND (s.status IS NULL OR s.status != 'ended')
-     ORDER BY q.id DESC, qa.accepted_at DESC`,
+          AND qa.status IN ('PENDING', 'SELECTED')
+          AND (
+            -- If student has selected a tutor (accepted_tutor_id is set), only show that tutor
+            (q.accepted_tutor_id IS NOT NULL AND qa.tutor_id = q.accepted_tutor_id)
+            OR
+            -- If no tutor selected yet, show all PENDING/SELECTED tutors
+            (q.accepted_tutor_id IS NULL)
+          )
+     ORDER BY q.id DESC, 
+              CASE WHEN qa.status = 'SELECTED' THEN 0 ELSE 1 END,
+              CASE WHEN qa.tutor_id = q.accepted_tutor_id THEN 0 ELSE 1 END,
+              qa.accepted_at DESC`,
       [studentId]
     );
 
@@ -1579,16 +1767,20 @@ router.put('/profile', async (req, res) => {
   }
 
   const sanitizedSpecialties = Array.isArray(specialties) ? specialties : [];
-  const sanitizedRate =
-    ratePer10Min !== null && ratePer10Min !== undefined ? Number(ratePer10Min) : null;
-
-  if (sanitizedRate !== null) {
-    if (Number.isNaN(sanitizedRate)) {
+  
+  // ✅ CRITICAL: Handle rate correctly - null/undefined means "not set", 0 means "free"
+  // If ratePer10Min is explicitly 0, it's a valid free rate
+  // If ratePer10Min is null/undefined/empty string, it means "not set" (null)
+  let sanitizedRate = null;
+  if (ratePer10Min !== null && ratePer10Min !== undefined && ratePer10Min !== "") {
+    const rateNum = Number(ratePer10Min);
+    if (Number.isNaN(rateNum)) {
       return res.status(400).json({ message: 'ratePer10Min must be a valid number' });
     }
-    if (sanitizedRate < 0) {
+    if (rateNum < 0) {
       return res.status(400).json({ message: 'ratePer10Min must be non-negative' });
     }
+    sanitizedRate = rateNum; // Can be 0 (free) or positive number
   }
 
   try {
