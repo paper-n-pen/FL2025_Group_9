@@ -15,19 +15,32 @@ import {
 import api from "../../lib/api";
 import { apiPath } from "../../config";
 
+interface TutorProfile {
+  id?: number;
+  name?: string;
+  bio?: string;
+  education?: string;
+  specialties?: string[];
+  rate?: number;
+  averageRating?: number;
+  ratingsCount?: number;
+}
+
 export default function TutorProfileView() {
   const { tutorId } = useParams<{ tutorId: string }>();
   const navigate = useNavigate();
 
-  const [tutor, setTutor] = useState<any>(null);
+  const [tutor, setTutor] = useState<TutorProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Fetch tutor info
   useEffect(() => {
     (async () => {
       try {
-        const data = await api.get(apiPath(`/queries/tutors/${tutorId}`));
-        setTutor(data);
+        const data = await api.get<TutorProfile | null>(
+          apiPath(`/queries/tutors/${tutorId}`)
+        );
+        setTutor(data ?? null);
       } catch (error) {
         console.error("Failed to fetch tutor info:", error);
       } finally {

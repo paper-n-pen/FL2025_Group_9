@@ -13,22 +13,37 @@ const STORAGE_KEYS = {
 
 export type SupportedUserType = keyof typeof STORAGE_KEYS;
 
-const parseUser = (raw: string | null) => {
+export interface StoredUser {
+  id?: number | string;
+  username?: string;
+  name?: string;
+  email?: string;
+  userType?: SupportedUserType | string;
+  [key: string]: unknown;
+}
+
+const parseUser = (raw: string | null): StoredUser | null => {
   if (!raw) {
     return null;
   }
 
   try {
-    return JSON.parse(raw);
-  } catch (_error) {
+    return JSON.parse(raw) as StoredUser;
+  } catch {
     return null;
   }
 };
 
+export interface AuthState {
+  user: StoredUser | null;
+  token: string | null;
+  userType: SupportedUserType | null;
+}
+
 export const storeAuthState = (
   userType: SupportedUserType,
   token: string | null,
-  user: any
+  user: StoredUser | null
 ) => {
   const keys = STORAGE_KEYS[userType];
   if (!keys) {
@@ -56,7 +71,7 @@ export const markActiveUserType = (userType: SupportedUserType) => {
   sessionStorage.setItem(ACTIVE_USER_SESSION_KEY, userType);
 };
 
-export const getAuthStateForType = (userType: SupportedUserType) => {
+export const getAuthStateForType = (userType: SupportedUserType): AuthState => {
   const keys = STORAGE_KEYS[userType];
   
   // Prefer sessionStorage (tab-isolated) over localStorage (shared)
@@ -75,7 +90,7 @@ export const getAuthStateForType = (userType: SupportedUserType) => {
   };
 };
 
-export const getActiveAuthState = () => {
+export const getActiveAuthState = (): AuthState => {
   const sessionType = sessionStorage.getItem(ACTIVE_USER_SESSION_KEY) as SupportedUserType | null;
 
   // Strict check: if session says we are X, only return X.

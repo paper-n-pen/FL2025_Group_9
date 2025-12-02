@@ -12,11 +12,11 @@ import {
   Avatar,
   Stack,
   Divider,
-  Chip,
   SvgIcon,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { getAuthStateForType, markActiveUserType, clearAuthState, storeAuthState } from "../../utils/authStorage";
+import type { StoredUser } from "../../utils/authStorage";
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
@@ -30,22 +30,37 @@ interface StudentQuery {
   subject: string;
   subtopic: string;
   query: string;
-  timestamp: Date;
+  timestamp: string;
   rate: number | null;
   status?: string;
   sessionId?: string | null;
   sessionStatus?: string | null;
 }
 
+interface TutorUser extends StoredUser {
+  id: number;
+  userType: "tutor";
+}
+
+const normalizeTutorUser = (raw: StoredUser | null): TutorUser | null => {
+  if (!raw) return null;
+  return {
+    ...raw,
+    id: Number(raw.id ?? 0),
+    userType: "tutor",
+  };
+};
+
 export default function TutorDashboard() {
   const [queries, setQueries] = useState<StudentQuery[]>([]);
   const [acceptedQueries, setAcceptedQueries] = useState<StudentQuery[]>([]);
   const declinedQueryIdsRef = useRef<Set<string>>(new Set());
-  const [tutorUser, setTutorUser] = useState<any>(() => {
+  const [tutorUser, setTutorUser] = useState<TutorUser | null>(() => {
     const stored = getAuthStateForType("tutor");
-    return stored.user;
+    return normalizeTutorUser(stored.user);
   });
   const navigate = useNavigate();
+  const tutorId = tutorUser?.id;
 
   // ✅ Fetch accepted queries
   const fetchAcceptedQueries = useCallback(async () => {
@@ -54,7 +69,7 @@ export default function TutorDashboard() {
         setAcceptedQueries([]);
         return;
       }
-      const response = await api.get(
+      const response = await api.get<StudentQuery[]>(
         apiPath(`/queries/tutor/${tutorUser.id}/accepted-queries`)
       );
       setAcceptedQueries(Array.isArray(response) ? response : []);
@@ -69,14 +84,14 @@ export default function TutorDashboard() {
 
     const fetchTutor = async () => {
       try {
-        const res = await api.get(apiPath("/me"));
+        const res = await api.get<{ user?: StoredUser }>(apiPath("/me"));
         const u = res?.user;
         const resolvedRole = (u?.userType || u?.role || "").toLowerCase();
 
         // Strict check: ensure we only accept a TUTOR user here.
         if (resolvedRole !== "tutor") {
           console.warn("TutorDashboard: /me returned non-tutor user. Ignoring to prevent cross-talk.", resolvedRole);
-          if (!tutorUser) {
+          if (!tutorId) {
              navigate("/tutor/login", { replace: true });
           }
           return;
@@ -85,12 +100,16 @@ export default function TutorDashboard() {
         if (resolvedRole === "tutor" && u) {
           // Strict check: if we already have a local user, ensure the ID matches.
           // This prevents Tutor A's tab from being hijacked by Tutor B's cookie.
-          if (tutorUser && tutorUser.id && u.id !== tutorUser.id) {
-            console.warn("TutorDashboard: /me returned different user ID. Ignoring to prevent cross-talk.", u.id, tutorUser.id);
+          if (typeof tutorId === "number" && tutorId > 0 && u.id !== tutorId) {
+            console.warn("TutorDashboard: /me returned different user ID. Ignoring to prevent cross-talk.", u.id, tutorId);
             return;
           }
 
-          const normalized = { ...u, userType: "tutor" };
+          const normalized = normalizeTutorUser({ ...u, userType: "tutor" });
+          if (!normalized) {
+            navigate("/tutor/login", { replace: true });
+            return;
+          }
           if (isMounted) {
             setTutorUser(normalized);
             markActiveUserType("tutor");
@@ -100,9 +119,9 @@ export default function TutorDashboard() {
         }
 
         throw new Error("Tutor role not confirmed");
-      } catch (error: any) {
+      } catch (error: unknown) {
         const cachedTutor = getAuthStateForType("tutor").user;
-        const message = String(error?.message ?? "").toLowerCase();
+        const message = (error instanceof Error ? error.message : String(error ?? "")).toLowerCase();
         const unauthorized = message.includes("401") || message.includes("unauthorized");
 
         if (!cachedTutor || unauthorized) {
@@ -113,7 +132,13 @@ export default function TutorDashboard() {
 
         console.warn("Falling back to cached tutor auth after /me failure", error);
         if (isMounted) {
-          setTutorUser(cachedTutor);
+          const normalized = normalizeTutorUser(cachedTutor);
+          if (!normalized) {
+            clearAuthState("tutor");
+            navigate("/tutor/login", { replace: true });
+            return;
+          }
+          setTutorUser(normalized);
           markActiveUserType("tutor");
         }
       }
@@ -124,13 +149,13 @@ export default function TutorDashboard() {
     return () => {
       isMounted = false;
     };
-  }, [navigate]);
+  }, [navigate, tutorId]);
 
   // ✅ Socket setup
   useEffect(() => {
     if (tutorUser?.id) socket.emit("join-tutor-room", tutorUser.id);
 
-    const newQueryHandler = (query: any) => {
+    const newQueryHandler = (query: StudentQuery) => {
       console.log("New query received:", query);
     };
 
@@ -147,7 +172,7 @@ export default function TutorDashboard() {
     const fetchQueries = async () => {
       try {
         if (!tutorUser?.id) return;
-        const response = await api.get(apiPath(`/queries/tutor/${tutorUser.id}`));
+        const response = await api.get<StudentQuery[]>(apiPath(`/queries/tutor/${tutorUser.id}`));
         const filtered = (Array.isArray(response) ? response : []).filter(
           (item: StudentQuery) => !declinedQueryIdsRef.current.has(item.id)
         );
@@ -176,7 +201,7 @@ export default function TutorDashboard() {
         navigate("/tutor/login");
         return;
       }
-      const response = await api.post(apiPath("/queries/accept"), {
+      const response = await api.post<{ message?: string }>(apiPath("/queries/accept"), {
         queryId,
         tutorId: tutorUser.id.toString(),
       });
@@ -187,7 +212,7 @@ export default function TutorDashboard() {
         );
         await fetchAcceptedQueries();
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error accepting query:", error);
       alert("Failed to accept query. Please try again.");
     }
@@ -204,7 +229,7 @@ export default function TutorDashboard() {
       setQueries((prevQueries: StudentQuery[]) =>
         prevQueries.filter((item) => item.id !== queryId)
       );
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error declining query:", error);
       alert("Failed to decline query. Please try again.");
     }
@@ -212,14 +237,14 @@ export default function TutorDashboard() {
 
   const handleStartSession = async (query: StudentQuery) => {
     try {
-      const response = await api.post(apiPath("/queries/session"), {
+      const response = await api.post<{ sessionId?: string }>(apiPath("/queries/session"), {
         queryId: query.id,
         tutorId: tutorUser.id,
         studentId: query.studentId,
       });
       const sessionId = response?.sessionId;
       if (sessionId) navigate(`/session/${sessionId}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error starting session:", error);
       alert("Failed to start session. Please try again.");
     }
@@ -236,7 +261,7 @@ export default function TutorDashboard() {
       setTutorUser(null);
       navigate("/tutor/login", { replace: true });
     }
-  }, [navigate, tutorUser?.id, socket]);
+  }, [navigate, tutorUser?.id]);
 
   // ✅ UI
   return (

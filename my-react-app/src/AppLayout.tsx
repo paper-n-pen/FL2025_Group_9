@@ -2,9 +2,10 @@ import { useLocation, useNavigate, Outlet } from "react-router-dom";
 import React, { useEffect, useState } from "react";
 import { apiPath } from "./config";
 import api from "./lib/api";
+import type { StoredUser } from "./utils/authStorage";
 
 export default function AppLayout() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<StoredUser | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
@@ -12,7 +13,7 @@ export default function AppLayout() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const data = await api.get(apiPath("/me"));
+        const data = await api.get<{ user?: StoredUser }>(apiPath("/me"));
         setUser(data?.user ?? null);
       } catch {
         setUser(null);

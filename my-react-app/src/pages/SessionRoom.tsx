@@ -51,12 +51,19 @@ type AuthUser = {
   [key: string]: unknown;
 };
 
+type RawAuthUser = Partial<AuthUser> & {
+  id?: number | string;
+  role?: string | null;
+  userType?: string | null;
+  [key: string]: unknown;
+};
+
 const resolveUserType = (value?: string | null, fallback?: string | null): SupportedUserType => {
   const candidate = (value || fallback || "").toLowerCase();
   return candidate === "tutor" ? "tutor" : "student";
 };
 
-const normalizeAuthUser = (raw: any, fallbackType?: string | null): AuthUser => {
+const normalizeAuthUser = (raw: RawAuthUser, fallbackType?: string | null): AuthUser => {
   const userType = resolveUserType(raw?.userType ?? raw?.role, fallbackType);
   const username =
     raw?.username ||
@@ -145,14 +152,14 @@ export default function SessionRoom() {
   const ensureUser = useCallback(async () => {
     const active = getActiveAuthState();
     if (active.user) {
-      const normalized = normalizeAuthUser(active.user, active.userType);
+      const normalized = normalizeAuthUser(active.user as RawAuthUser, active.userType);
       markActiveUserType(normalized.userType);
       storeAuthState(normalized.userType, null, normalized);
       setUser(normalized);
       return true;
     }
     try {
-      const data = await api.get(apiPath("/me"));
+      const data = await api.get<{ user?: RawAuthUser }>(apiPath("/me"));
       const fetchedUser = data?.user;
       if (fetchedUser) {
         const normalized = normalizeAuthUser(fetchedUser);

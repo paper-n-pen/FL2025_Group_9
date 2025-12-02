@@ -34,6 +34,13 @@ interface AuthUser {
   [key: string]: unknown;
 }
 
+type RawStudentUser = Partial<AuthUser> & {
+  id?: number | string;
+  role?: string | null;
+  userType?: string | null;
+  [key: string]: unknown;
+};
+
 interface SessionSummary {
   sessionId: string;
   status: string;
@@ -47,7 +54,7 @@ interface SessionSummary {
   ratePer10Min: number | null;
 }
 
-const normalizeUser = (raw: any): AuthUser => {
+const normalizeUser = (raw: RawStudentUser): AuthUser => {
   const userType: SupportedUserType = (raw?.userType ?? raw?.role ?? "student").toLowerCase() === "tutor"
     ? "tutor"
     : "student";
@@ -90,7 +97,7 @@ const RateSession = () => {
       active.user &&
       (active.userType === "student" || active.user?.userType === "student")
     ) {
-      const normalized = normalizeUser(active.user);
+      const normalized = normalizeUser(active.user as RawStudentUser);
       markActiveUserType("student");
       storeAuthState("student", null, normalized);
       setUser(normalized);
@@ -98,7 +105,7 @@ const RateSession = () => {
     }
 
     try {
-      const data = await api.get(apiPath("/me"));
+      const data = await api.get<{ user?: RawStudentUser }>(apiPath("/me"));
       const fetchedUser = data?.user;
       if (fetchedUser && (fetchedUser.role === "student" || fetchedUser.userType === "student")) {
         const normalized = normalizeUser({ ...fetchedUser, userType: "student" });
@@ -124,8 +131,8 @@ const RateSession = () => {
       setLoading(true);
       try {
         const query = `/queries/session/${sessionId}/summary?studentId=${student.id}`;
-        const data = await api.get(apiPath(query));
-        setSessionSummary(data as SessionSummary);
+        const data = await api.get<SessionSummary>(apiPath(query));
+        setSessionSummary(data);
         setSelectedRating(data?.rating ?? null);
       } catch (error) {
         console.error("Failed to load session summary:", error);

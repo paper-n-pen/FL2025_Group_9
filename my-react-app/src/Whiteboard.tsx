@@ -408,7 +408,7 @@ const Whiteboard = ({ socket, sessionId }: WhiteboardProps) => {
         context.clearRect(0, 0, canvas.width, canvas.height);
         resetHistory();
         emitDrawing({ type: 'clear' });
-    }, [emitDrawing]);
+    }, [emitDrawing, resetHistory]);
 
     const downloadCanvas = useCallback(() => {
         const canvas = canvasRef.current;

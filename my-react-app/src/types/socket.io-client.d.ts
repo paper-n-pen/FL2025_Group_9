@@ -1,5 +1,5 @@
 declare module "socket.io-client" {
-  type Listener = (...args: any[]) => void;
+  type Listener = (...args: unknown[]) => void;
 
   export interface Socket {
     id?: string;
@@ -14,7 +14,7 @@ declare module "socket.io-client" {
   }
 
   export interface ManagerOptions {
-    [key: string]: any;
+    [key: string]: unknown;
   }
 
   export interface SocketOptions {
@@ -22,7 +22,7 @@ declare module "socket.io-client" {
     transports?: string[];
     auth?: Record<string, unknown>;
     extraHeaders?: Record<string, string>;
-    [key: string]: any;
+    [key: string]: unknown;
   }
 
   export function io(

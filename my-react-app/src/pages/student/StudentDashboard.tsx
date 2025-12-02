@@ -27,6 +27,7 @@ import {
   storeAuthState,
   getActiveAuthState,
 } from "../../utils/authStorage";
+import type { StoredUser } from "../../utils/authStorage";
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
@@ -45,27 +46,74 @@ type Snack = {
   open: boolean;
 };
 
+interface StudentUser extends StoredUser {
+  id: number;
+  userType: "student";
+  username?: string;
+  name?: string;
+  email?: string;
+}
+
+interface AcceptedTutor {
+  queryId: string;
+  tutorId: number;
+  tutorName: string;
+  subject?: string;
+  subtopic?: string;
+  query?: string;
+  sessionId?: string | null;
+  sessionStatus?: string | null;
+  status?: string | null;
+  rate?: number | null;
+  tutorAverageRating?: number | null;
+  tutorRatingsCount?: number | null;
+  [key: string]: unknown;
+}
+
+type TutorAcceptedPayload = {
+  tutorName?: string;
+};
+
+const normalizeStudentUser = (raw: StoredUser | null): StudentUser | null => {
+  if (!raw) return null;
+  const username = typeof raw.username === "string" && raw.username.trim()
+    ? raw.username
+    : typeof raw.name === "string" && raw.name.trim()
+    ? raw.name
+    : typeof raw.email === "string" && raw.email.includes("@")
+    ? raw.email.split("@")[0]
+    : `student-${raw.id ?? Date.now()}`;
+
+  return {
+    ...raw,
+    id: Number(raw.id ?? 0),
+    userType: "student",
+    username,
+  };
+};
+
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const [selectedSubject, setSelectedSubject] = useState<string>("");
   const [selectedSubtopic, setSelectedSubtopic] = useState<string>("");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [studentUser, setStudentUser] = useState<any>(() => {
+  const [studentUser, setStudentUser] = useState<StudentUser | null>(() => {
     const { user, userType } = getActiveAuthState();
-    return userType === "student" ? user : null;
+    return userType === "student" ? normalizeStudentUser(user) : null;
   });
-  const [acceptedTutors, setAcceptedTutors] = useState<any[]>([]);
+  const [acceptedTutors, setAcceptedTutors] = useState<AcceptedTutor[]>([]);
+  const studentId = studentUser?.id;
   const [snacks, setSnacks] = useState<Snack[]>([]);
 
-  const pushSnack = (
-    message: string,
-    severity: AlertColor = "info"
-  ) =>
-    setSnacks((prevSnacks: Snack[]) => [
-      ...prevSnacks,
-      { id: Date.now() + Math.random(), message, severity, open: true },
-    ]);
+  const pushSnack = useCallback(
+    (message: string, severity: AlertColor = "info") =>
+      setSnacks((prevSnacks: Snack[]) => [
+        ...prevSnacks,
+        { id: Date.now() + Math.random(), message, severity, open: true },
+      ]),
+    []
+  );
 
   const closeSnack = (id: number) =>
     setSnacks((prevSnacks: Snack[]) =>
@@ -134,32 +182,40 @@ export default function StudentDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const data = await api.get(apiPath("/me"));
+        const data = await api.get<{ user?: StoredUser }>(apiPath("/me"));
         const fetchedUser = data?.user;
         if (!cancelled && fetchedUser) {
-          // Strict check: ensure we only accept a STUDENT user here.
-          // If the cookie belongs to a Tutor (from another tab), ignore it to prevent state pollution.
-          const role = (fetchedUser.role || fetchedUser.userType || "").toLowerCase();
+          const role = String(fetchedUser.role ?? fetchedUser.userType ?? "").toLowerCase();
           if (role !== "student") {
-            console.warn("StudentDashboard: /me returned non-student user. Ignoring to prevent cross-talk.", role);
-            // Optionally: if we have no local user, we might want to redirect to login or show error.
-            // But if we have a local user, we definitely don't want to overwrite it with a Tutor user.
-            if (!studentUser) {
-               navigate("/student/login", { replace: true });
+            console.warn(
+              "StudentDashboard: /me returned non-student user. Ignoring to prevent cross-talk.",
+              role
+            );
+            if (!studentId) {
+              navigate("/student/login", { replace: true });
             }
             return;
           }
 
-          // Strict check: if we already have a local user, ensure the ID matches.
-          if (studentUser && studentUser.id && fetchedUser.id !== studentUser.id) {
-            console.warn("StudentDashboard: /me returned different user ID. Ignoring to prevent cross-talk.", fetchedUser.id, studentUser.id);
+          const fetchedId = Number((fetchedUser.id as number | string | undefined) ?? 0);
+          if (typeof studentId === "number" && studentId > 0 && fetchedId !== studentId) {
+            console.warn(
+              "StudentDashboard: /me returned different user ID. Ignoring to prevent cross-talk.",
+              fetchedUser.id,
+              studentId
+            );
             return;
           }
 
-          const u = { ...fetchedUser, userType: "student" };
-          setStudentUser(u);
+          const normalized = normalizeStudentUser({ ...fetchedUser, userType: "student" });
+          if (!normalized) {
+            navigate("/student/login", { replace: true });
+            return;
+          }
+
+          setStudentUser(normalized);
           markActiveUserType("student");
-          storeAuthState("student", null, u);
+          storeAuthState("student", null, normalized);
         } else if (!cancelled) {
           navigate("/student/login", { replace: true });
         }
@@ -170,16 +226,20 @@ export default function StudentDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, studentId]);
 
   const fetchTutorResponses = useCallback(async () => {
     try {
       if (!studentUser?.id) return;
-      const data = await api.get(apiPath(`/queries/student/${studentUser.id}/responses`));
+      const data = await api.get<AcceptedTutor[]>(
+        apiPath(`/queries/student/${studentUser.id}/responses`)
+      );
       const list = Array.isArray(data) ? data : [];
-      const active = list.filter((item: any) => {
-        const status = item?.status?.toLowerCase?.() || "";
-        const sessionStatus = item?.sessionStatus?.toLowerCase?.() || "";
+      const active = list.filter((item) => {
+        const status = typeof item.status === "string" ? item.status.toLowerCase() : "";
+        const sessionStatus = typeof item.sessionStatus === "string"
+          ? item.sessionStatus.toLowerCase()
+          : "";
         return !(status === "completed" || sessionStatus === "ended");
       });
       setAcceptedTutors(active);
@@ -192,8 +252,9 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (studentUser?.id) socket.emit("join-student-room", studentUser.id);
 
-    const onAccepted = (data: any) => {
-      pushSnack(`${data.tutorName} accepted your query!`, "success");
+    const onAccepted = (data: TutorAcceptedPayload) => {
+      const tutorName = data.tutorName ?? "A tutor";
+      pushSnack(`${tutorName} accepted your query!`, "success");
       fetchTutorResponses();
     };
 
@@ -203,7 +264,7 @@ export default function StudentDashboard() {
       if (studentUser?.id) socket.emit("leave-student-room", studentUser.id);
       socket.off("tutor-accepted", onAccepted);
     };
-  }, [fetchTutorResponses, studentUser?.id]);
+  }, [fetchTutorResponses, pushSnack, studentUser?.id]);
 
   // 🔁 Periodically refresh responses (optional)
   useEffect(() => {
@@ -220,7 +281,7 @@ export default function StudentDashboard() {
     } catch (err) {
       console.error("Logout error:", err);
     }
-    clearAuthState?.("student");
+    clearAuthState("student");
     setStudentUser(null);
     navigate("/student/login", { replace: true });
   };
@@ -238,7 +299,7 @@ export default function StudentDashboard() {
     }
     setLoading(true);
     try {
-      const response = await api.post(apiPath("/queries/post"), {
+      const response = await api.post<{ message?: string }>(apiPath("/queries/post"), {
         subject: selectedSubject,
         subtopic: selectedSubtopic,
         query: query.trim(),
@@ -258,7 +319,7 @@ export default function StudentDashboard() {
   };
 
   // 🚀 Enter session (passes user via location.state too)
-  const handleStartSession = (item: any) => {
+  const handleStartSession = (item: AcceptedTutor) => {
     if (!studentUser?.id) {
       pushSnack("Your session expired. Please login again.", "error");
       navigate("/student/login", { replace: true });
@@ -497,13 +558,18 @@ export default function StudentDashboard() {
                 </Box>
               ) : (
                 <Stack spacing={2}>
-                  {acceptedTutors.map((tutor: any, idx: number) => {
-                    const canEnter = !!tutor.sessionId && tutor.sessionStatus !== "ended";
-                    const hasRating =
+                  {acceptedTutors.map((tutor, idx) => {
+                    const sessionStatus = typeof tutor.sessionStatus === "string"
+                      ? tutor.sessionStatus.toLowerCase()
+                      : "";
+                    const canEnter = Boolean(tutor.sessionId) && sessionStatus !== "ended";
+                    const ratingValue =
                       typeof tutor.tutorAverageRating === "number" &&
-                      !Number.isNaN(tutor.tutorAverageRating);
-                    const ratingText = hasRating
-                      ? `${tutor.tutorAverageRating.toFixed?.(1) ?? tutor.tutorAverageRating}/5 (${tutor.tutorRatingsCount || 0} reviews)`
+                      !Number.isNaN(tutor.tutorAverageRating)
+                        ? tutor.tutorAverageRating
+                        : null;
+                    const ratingText = ratingValue !== null
+                      ? `${ratingValue.toFixed(1)}/5 (${tutor.tutorRatingsCount ?? 0} reviews)`
                       : "No ratings yet";
                     return (
                       <Card

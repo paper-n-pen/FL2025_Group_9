@@ -1,12 +1,20 @@
 // src/components/ErrorBoundary.tsx
 import React from "react";
 
+type ErrorBoundaryState = { error: Error | null };
+
 export default class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { error: any }
+  ErrorBoundaryState
 > {
-  constructor(props:any){ super(props); this.state = { error: null }; }
-  static getDerivedStateFromError(error:any){ return { error }; }
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
   render() {
     if (this.state.error) {
       return (
