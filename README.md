@@ -1,8 +1,7 @@
-# FL2025: Group &lt;Group Number&gt; &lt;Project Name&gt;
+# FL2025: Group &lt;Group Number&gt; &lt;MicroTutor&gt;
 
 Name your repository using the following format:  
-**SP2025_Group_&lt;Group Number&gt;**  
-(Example: FL2025_Group_9)
+**FL2025_Group_&lt;9&gt;**  
 
 ## Team Members
 
