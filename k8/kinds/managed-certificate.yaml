@@ -1,0 +1,8 @@
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: microtutor-ssl-cert
+  namespace: microtutor
+spec:
+  domains:
+    - 34-136-132-243.nip.io  # Using nip.io for automatic DNS (works with IP)

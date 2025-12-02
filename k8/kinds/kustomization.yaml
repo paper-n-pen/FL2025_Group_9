@@ -11,4 +11,5 @@ resources:
   - frontend-deployment.yaml
   - ollama-init-configmap.yaml
   - ollama-deployment.yaml
+  - managed-certificate.yaml
   - ingress.yaml

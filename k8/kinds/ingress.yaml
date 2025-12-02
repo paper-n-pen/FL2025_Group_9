@@ -2,15 +2,15 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: microtutor-ingress
+  namespace: microtutor
   annotations:
-    # Note: Requires an ingress controller (e.g., nginx-ingress) to be installed
-    # For kind: kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    kubernetes.io/ingress.global-static-ip-name: microtutor-ip
+    networking.gke.io/managed-certificates: microtutor-ssl-cert
+    kubernetes.io/ingress.class: "gce"
 spec:
-  ingressClassName: nginx
   rules:
-    - http:
+    - host: 34-136-132-243.nip.io
+      http:
         paths:
           - path: /api
             pathType: Prefix
