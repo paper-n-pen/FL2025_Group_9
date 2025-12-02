@@ -1,7 +1,7 @@
 # FL2025: Group 9 | MicroTutor
 
 Name your repository using the following format:  
-**FL2025_Group_&lt;9&gt;**  
+**FL2025_Group_9**  
 
 ## Team Members
 
