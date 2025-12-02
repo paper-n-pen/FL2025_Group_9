@@ -23,6 +23,30 @@ const mapQueryRow = (row, overrides = {}) => ({
 });
 
 // ------------------------
+// OPTIONS handler middleware for all routes in this router
+// ------------------------
+router.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    const origin = req.headers.origin;
+    const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:8080,http://localhost,http://127.0.0.1')
+      .split(',')
+      .map(o => o.trim())
+      .filter(Boolean);
+    
+    if (origin && corsOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With');
+      return res.status(204).end();
+    }
+    
+    return res.status(204).end();
+  }
+  next();
+});
+
+// ------------------------
 // POST /queries/post
 // ------------------------
 router.post('/post', async (req, res) => {
@@ -364,20 +388,46 @@ router.post('/accept', async (req, res) => {
   let authenticatedTutorId = null;
   try {
     const token = req.cookies?.token || req.cookies?.authToken;
+    console.log('[QUERY ACCEPT] 🔍 Checking authentication:', {
+      hasToken: !!token,
+      tokenLength: token ? token.length : 0,
+      cookies: Object.keys(req.cookies || {}),
+      bodyTutorId: tutorIdNumber,
+    });
+    
     if (token) {
       const jwt = require('jsonwebtoken');
       const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-secret-change-me");
+      console.log('[QUERY ACCEPT] 🔍 JWT decoded:', {
+        id: decoded.id,
+        role: decoded.role,
+        expectedRole: 'tutor',
+        matches: decoded.role === 'tutor',
+      });
+      
       if (decoded.role === 'tutor') {
         authenticatedTutorId = Number(decoded.id);
         console.log('[QUERY ACCEPT] ✅ Authenticated tutor ID from JWT:', authenticatedTutorId);
       } else {
-        console.warn('[QUERY ACCEPT] ⚠️ JWT role is not tutor:', decoded.role);
+        console.warn('[QUERY ACCEPT] ⚠️ JWT role is not tutor:', {
+          decodedRole: decoded.role,
+          decodedId: decoded.id,
+          bodyTutorId: tutorIdNumber,
+          message: 'Cookie contains wrong user type. User must log out and log back in as tutor.',
+        });
       }
     } else {
-      console.warn('[QUERY ACCEPT] ⚠️ No JWT token found in cookies');
+      console.warn('[QUERY ACCEPT] ⚠️ No JWT token found in cookies:', {
+        cookies: Object.keys(req.cookies || {}),
+        message: 'No authentication token found. User must log in.',
+      });
     }
   } catch (e) {
-    console.error('[QUERY ACCEPT] ❌ JWT verification failed:', e.message);
+    console.error('[QUERY ACCEPT] ❌ JWT verification failed:', {
+      error: e.message,
+      stack: e.stack,
+      message: 'Token is invalid or expired. User must log in again.',
+    });
     // JWT verification failed - this is a problem, but continue with body tutorId as fallback
   }
 
@@ -385,7 +435,26 @@ router.post('/accept', async (req, res) => {
   // If JWT is not available, reject the request (security issue)
   if (!authenticatedTutorId) {
     console.error('[QUERY ACCEPT] 🚨 NO JWT TUTOR ID - Rejecting request for security');
-    return res.status(401).json({ message: 'Authentication required. Please log in again.' });
+    // Check if token exists but has wrong role
+    const token = req.cookies?.token || req.cookies?.authToken;
+    if (token) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev-secret-change-me");
+        if (decoded.role === 'student') {
+          return res.status(401).json({ 
+            message: 'You are logged in as a student. Please log out and log back in as a tutor to accept queries.',
+            code: 'WRONG_USER_TYPE'
+          });
+        }
+      } catch (e) {
+        // Token invalid, fall through to generic message
+      }
+    }
+    return res.status(401).json({ 
+      message: 'Authentication required. Please log out and log back in as a tutor.',
+      code: 'AUTH_REQUIRED'
+    });
   }
 
   const finalTutorId = authenticatedTutorId;
@@ -910,16 +979,19 @@ router.post('/session/:sessionId/charge-on-enter', async (req, res) => {
       tutorCalculation: `${tutorOld} + ${rate} = ${tutorNew} (tutor)`,
     });
 
-    // 7) Update users
+    // 7) Update users - PERSIST both student and tutor tokens to DB
     await client.query(
       `UPDATE users SET tokens = $1 WHERE id = $2`,
       [studentNew, session.student_id]
     );
 
+    // ✅ STEP 2: Ensure tutor tokens are persisted to DB
     await client.query(
       `UPDATE users SET tokens = $1 WHERE id = $2`,
       [tutorNew, session.tutor_id]
     );
+    
+    console.log('[🪙 COINS ENTER] Updating tokens in DB for tutor', session.tutor_id, '=>', tutorNew);
 
     // 8) Mark session as charged (do NOT change video/timer status here)
     await client.query(
@@ -939,19 +1011,48 @@ router.post('/session/:sessionId/charge-on-enter', async (req, res) => {
       equivalentUSD: `$${rate}`,
     });
 
-    // 🔥 EMIT SOCKET EVENT to notify tutor of coin earning
+    // 🔥 EMIT SOCKET EVENT to notify tutor of coin earning - IMMEDIATELY after commit
+    // Use setImmediate to ensure DB transaction is fully committed before emitting
     if (io) {
-      io.to(`tutor-${session.tutor_id}`).emit('coins-updated', {
-        userId: session.tutor_id,
-        newBalance: tutorNew,
-        earned: rate,
-        reason: 'session-started',
-      });
-      console.log('[🪙 COINS] 📢 Socket event sent to tutor:', {
-        tutorId: session.tutor_id,
-        room: `tutor-${session.tutor_id}`,
-        newBalance: tutorNew,
-        earned: rate,
+      setImmediate(() => {
+        const tutorRoom = `tutor-${session.tutor_id}`;
+        const eventData = {
+          userId: session.tutor_id,
+          sessionId: sessionIdNumber,
+          newBalance: tutorNew,
+          earned: rate,
+          reason: 'session-started',
+        };
+        
+        // Emit to tutor room (primary method)
+        io.to(tutorRoom).emit('coins-updated', eventData);
+        
+        // Also emit directly to any socket with this tutor ID (fallback)
+        io.sockets.sockets.forEach((socket) => {
+          if (socket.data && socket.data.tutorId === session.tutor_id) {
+            socket.emit('coins-updated', eventData);
+          }
+        });
+        
+        // Log socket room status for debugging
+        io.in(tutorRoom).fetchSockets().then((sockets) => {
+          console.log('[🪙 COINS] 📢 Socket event sent to tutor:', {
+            tutorId: session.tutor_id,
+            room: tutorRoom,
+            socketsInRoom: sockets.length,
+            socketIds: sockets.map(s => s.id),
+            newBalance: tutorNew,
+            earned: rate,
+          });
+        }).catch((err) => {
+          console.log('[🪙 COINS] 📢 Socket event sent to tutor (room check failed):', {
+            tutorId: session.tutor_id,
+            room: tutorRoom,
+            newBalance: tutorNew,
+            earned: rate,
+            error: err.message,
+          });
+        });
       });
     }
 
@@ -996,14 +1097,37 @@ router.get('/session/:sessionId/user/:userId/coins', async (req, res) => {
     });
   }
 
+  const client = await pool.connect();
   try {
-    // Verify this user is part of this session
-    const { rows: sessionRows } = await pool.query(
-      `SELECT student_id, tutor_id FROM sessions WHERE id = $1`,
+    await client.query('BEGIN');
+
+    // ✅ STEP 2: Load session with charge status and tutor rate
+    const colCheck = await client.query(
+      `SELECT column_name 
+       FROM information_schema.columns 
+       WHERE table_name = 'sessions' 
+       AND column_name IN ('tokens_charged', 'tokens_transferred')
+       ORDER BY CASE WHEN column_name = 'tokens_charged' THEN 1 ELSE 2 END
+       LIMIT 1`
+    );
+    const chargeColumn = colCheck.rows[0]?.column_name || 'tokens_transferred';
+
+    const { rows: sessionRows } = await client.query(
+      `SELECT 
+        s.id,
+        s.student_id,
+        s.tutor_id,
+        s.${chargeColumn} AS tokens_charged,
+        u_t.rate_per_10_min AS rate
+       FROM sessions s
+       JOIN users u_t ON u_t.id = s.tutor_id
+       WHERE s.id = $1
+       FOR UPDATE`,
       [sessionIdNumber]
     );
 
     if (sessionRows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({
         ok: false,
         message: 'Session not found',
@@ -1011,46 +1135,232 @@ router.get('/session/:sessionId/user/:userId/coins', async (req, res) => {
     }
 
     const session = sessionRows[0];
-    const isStudentInSession = session.student_id === userIdNumber;
-    const isTutorInSession = session.tutor_id === userIdNumber;
+    const paramUserId = userIdNumber;
+    const isStudent = paramUserId === session.student_id;
+    const isTutor = paramUserId === session.tutor_id;
 
-    if (!isStudentInSession && !isTutorInSession) {
+    if (!isStudent && !isTutor) {
+      await client.query('ROLLBACK');
       return res.status(403).json({
         ok: false,
         message: 'User is not part of this session',
       });
     }
 
-    // Get user's current coins
-    const { rows: userRows } = await pool.query(
-      `SELECT id, user_type, tokens FROM users WHERE id = $1`,
-      [userIdNumber]
-    );
+    // ✅ STEP 2: If called by student, handle charge (deduct student, credit tutor)
+    if (isStudent) {
+      const tokensCharged = session.tokens_charged === true || session.tokens_charged === 't' || session.tokens_charged === 1;
+      const rate = session.rate !== null && session.rate !== undefined ? Math.round(Number(session.rate)) : 0;
 
-    if (userRows.length === 0) {
-      return res.status(404).json({
-        ok: false,
-        message: 'User not found',
+      console.log('[🪙 COINS GET] Student endpoint called - checking if charge needed:', {
+        sessionId: sessionIdNumber,
+        studentId: session.student_id,
+        tutorId: session.tutor_id,
+        tokensCharged,
+        rate,
+      });
+
+      // If already charged, just return current coins
+      if (tokensCharged) {
+        const { rows: studentRows } = await client.query(
+          `SELECT id, user_type, tokens FROM users WHERE id = $1`,
+          [session.student_id]
+        );
+        await client.query('COMMIT');
+        client.release();
+
+        if (studentRows.length === 0) {
+          return res.status(404).json({
+            ok: false,
+            message: 'Student not found',
+          });
+        }
+
+        const student = studentRows[0];
+        const coins = Number(student.tokens ?? 0);
+
+        console.log('[🪙 COINS GET] Already charged, returning current student coins:', {
+          studentId: session.student_id,
+          coins,
+        });
+
+        return res.json({
+          ok: true,
+          userId: student.id,
+          userType: student.user_type,
+          coins,
+        });
+      }
+
+      // Free session (rate <= 0) → mark as charged but no balance change
+      if (!rate || rate <= 0) {
+        const { rows: studentRows } = await client.query(
+          `SELECT id, user_type, tokens FROM users WHERE id = $1`,
+          [session.student_id]
+        );
+        
+        await client.query(
+          `UPDATE sessions SET ${chargeColumn} = TRUE WHERE id = $1`,
+          [sessionIdNumber]
+        );
+        await client.query('COMMIT');
+        client.release();
+
+        if (studentRows.length === 0) {
+          return res.status(404).json({
+            ok: false,
+            message: 'Student not found',
+          });
+        }
+
+        const student = studentRows[0];
+        const coins = Number(student.tokens ?? 0);
+
+        return res.json({
+          ok: true,
+          userId: student.id,
+          userType: student.user_type,
+          coins,
+        });
+      }
+
+      // ✅ STEP 2: Charge coins - deduct from student, credit to tutor
+      // Lock both user rows
+      const { rows: studentRows } = await client.query(
+        `SELECT id, tokens FROM users WHERE id = $1 FOR UPDATE`,
+        [session.student_id]
+      );
+
+      const { rows: tutorRows } = await client.query(
+        `SELECT id, tokens FROM users WHERE id = $1 FOR UPDATE`,
+        [session.tutor_id]
+      );
+
+      if (studentRows.length === 0 || tutorRows.length === 0) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(500).json({
+          ok: false,
+          message: 'Student or tutor not found',
+        });
+      }
+
+      const studentOld = Number(studentRows[0].tokens ?? 0);
+      const tutorOld = Number(tutorRows[0].tokens ?? 0);
+
+      // Check student has enough coins
+      if (studentOld < rate) {
+        await client.query('ROLLBACK');
+        client.release();
+        return res.status(400).json({
+          ok: false,
+          code: 'INSUFFICIENT_TOKENS',
+          message: `Not enough coins. You have ${studentOld} coins but need ${rate} coins ($${rate}) to enter this session.`,
+          studentTokens: studentOld,
+          required: rate,
+        });
+      }
+
+      // Compute new balances
+      const studentNew = studentOld - rate;
+      const tutorNew = tutorOld + rate;
+
+      console.log('[🪙 COINS GET] Charging coins:', {
+        studentId: session.student_id,
+        tutorId: session.tutor_id,
+        studentOld,
+        studentNew,
+        tutorOld,
+        tutorNew,
+        rate,
+      });
+
+      // ✅ STEP 2: Update both users in DB
+      await client.query(
+        `UPDATE users SET tokens = $1 WHERE id = $2`,
+        [studentNew, session.student_id]
+      );
+
+      await client.query(
+        `UPDATE users SET tokens = $1 WHERE id = $2`,
+        [tutorNew, session.tutor_id]
+      );
+
+      console.log('[🪙 COINS GET] Updating tokens in DB for tutor', session.tutor_id, '=>', tutorNew);
+
+      // Mark session as charged
+      await client.query(
+        `UPDATE sessions SET ${chargeColumn} = TRUE WHERE id = $1`,
+        [sessionIdNumber]
+      );
+
+      await client.query('COMMIT');
+      client.release();
+
+      console.log('[🪙 COINS GET] ✅ Charge completed and saved to DB:', {
+        sessionId: sessionIdNumber,
+        studentId: session.student_id,
+        tutorId: session.tutor_id,
+        studentBalance: `${studentOld} 🪙 → ${studentNew} 🪙`,
+        tutorBalance: `${tutorOld} 🪙 → ${tutorNew} 🪙`,
+        rate,
+      });
+
+      // Return student coins (tutor coins will be picked up via /api/me polling)
+      return res.json({
+        ok: true,
+        userId: session.student_id,
+        userType: 'student',
+        coins: studentNew,
+        tutorId: session.tutor_id,
+        tutorCoins: tutorNew, // Optional: include in response
       });
     }
 
-    const user = userRows[0];
-    const coins = Number(user.tokens ?? 0);
+    // ✅ STEP 2: If called by tutor, just return current coins (read-only)
+    if (isTutor) {
+      const { rows: tutorRows } = await client.query(
+        `SELECT id, user_type, tokens FROM users WHERE id = $1`,
+        [session.tutor_id]
+      );
+      await client.query('COMMIT');
+      client.release();
 
-    console.log('[🪙 COINS GET] Fetched coins for user in session:', {
-      sessionId: sessionIdNumber,
-      userId: userIdNumber,
-      userType: user.user_type,
-      coins,
-    });
+      if (tutorRows.length === 0) {
+        return res.status(404).json({
+          ok: false,
+          message: 'Tutor not found',
+        });
+      }
 
-    return res.json({
-      ok: true,
-      userId: user.id,
-      userType: user.user_type,
-      coins,
+      const tutor = tutorRows[0];
+      const coins = Number(tutor.tokens ?? 0);
+
+      console.log('[🪙 COINS GET] Tutor read-only request - returning current coins:', {
+        tutorId: session.tutor_id,
+        coins,
+      });
+
+      return res.json({
+        ok: true,
+        userId: tutor.id,
+        userType: tutor.user_type,
+        coins,
+      });
+    }
+
+    // Should not reach here
+    await client.query('ROLLBACK');
+    client.release();
+    return res.status(500).json({
+      ok: false,
+      message: 'Unexpected error',
     });
   } catch (err) {
+    if (client) {
+      await client.query('ROLLBACK').catch(() => {});
+      client.release();
+    }
     console.error('[🪙 COINS GET] ERROR', err);
     return res.status(500).json({
       ok: false,

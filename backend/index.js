@@ -1,10 +1,12 @@
 // backend/index.js
 const express = require("express");
-const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const { Server } = require("socket.io");
 const http = require("http");
-require("dotenv").config();
+// Only load .env if not in Kubernetes (K8s sets env vars directly)
+if (!process.env.KUBERNETES_SERVICE_HOST) {
+  require("dotenv").config();
+}
 
 const { pool } = require("./db");
 const authRoutes = require("./routes/auth");
@@ -17,67 +19,93 @@ const server = http.createServer(app);
 
 /* -------------------- CORS ORIGINS SETUP -------------------- */
 
-const fallbackCorsOrigins = [
-  "http://localhost:5173",
-  "http://localhost:4173",
-  "http://localhost",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:4173",
-  "http://127.0.0.1",
-];
-
-const envCorsOrigins = (process.env.CORS_ORIGIN || "")
-  .split(",")
-  .map((origin) => origin.trim())
+// Read CORS_ORIGIN from env and convert to array
+const corsEnv = process.env.CORS_ORIGIN || '';
+const corsOrigins = corsEnv
+  .split(',')
+  .map(o => o.trim())
   .filter(Boolean);
 
-const hasLocalhostOrigin = envCorsOrigins.some(
-  (origin) => origin.includes("localhost") || origin.includes("127.0.0.1")
-);
-
-// allow ngrok: *.ngrok-free.app, *.ngrok.app, *.ngrok.io
-const ngrokPattern =
-  /^https?:\/\/[a-z0-9-]+\.(ngrok(-free)?\.app|ngrok\.io|ngrok-free\.app)$/i;
-
-const ngrokOrigins = envCorsOrigins.filter((origin) =>
-  ngrokPattern.test(origin)
-);
-
-const corsOrigins = envCorsOrigins.length
-  ? Array.from(
-      new Set([
-        ...envCorsOrigins,
-        ...ngrokOrigins,
-        ...(hasLocalhostOrigin ? fallbackCorsOrigins : []),
-      ])
-    )
-  : fallbackCorsOrigins;
+// Optional: add a sensible default if CORS_ORIGIN is empty
+if (corsOrigins.length === 0) {
+  corsOrigins.push('http://localhost:8080', 'http://localhost', 'http://127.0.0.1');
+}
 
 console.log("🌐 CORS Origins configured:", corsOrigins);
+
+/* -------------------- OPTIONS HANDLER - MUST BE FIRST -------------------- */
+// Handle ALL OPTIONS requests FIRST - before Socket.IO, before any other middleware
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    const origin = req.headers.origin;
+    console.log(`[CORS OPTIONS HANDLER] OPTIONS ${req.path} - Origin: ${origin || 'none'}`);
+    
+    if (origin && corsOrigins.includes(origin)) {
+      console.log(`[CORS OPTIONS HANDLER] ✅ Allowing OPTIONS from origin: ${origin}`);
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+      res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With');
+      return res.sendStatus(204);
+    } else {
+      console.log(`[CORS OPTIONS HANDLER] ❌ OPTIONS from origin ${origin} not allowed`);
+      return res.sendStatus(204);
+    }
+  }
+  next();
+});
 
 /* -------------------- SOCKET.IO SERVER -------------------- */
 
 const io = new Server(server, {
   cors: {
-    origin: corsOrigins,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (same-origin, mobile apps, etc.)
+      if (!origin) {
+        return callback(null, true);
+      }
+      // Check if origin is in allowed list
+      if (corsOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
     methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   },
+  allowEIO3: true, // Allow Engine.IO v3 clients
+  transports: ["websocket", "polling"],
 });
 
 const PORT = process.env.PORT || 3001;
 
 /* -------------------- EXPRESS MIDDLEWARE -------------------- */
 
+// CORS middleware for all other requests
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
+  // Always log to verify middleware is being called
+  console.log(`[CORS MIDDLEWARE] ${req.method} ${req.path} - Origin: ${origin || 'none'}`);
+
+  // For all requests, set CORS headers if origin matches
+  if (origin && corsOrigins.includes(origin)) {
+    console.log(`[CORS] ✅ Setting CORS headers for ${req.method} ${req.path} from origin: ${origin}`);
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With');
+  } else if (origin) {
+    console.log(`[CORS] ⚠️ Origin ${origin} not in allowed list`);
+  }
+
+  next();
+});
+
 app.use(cookieParser());
 app.use(express.json());
-
-app.use(
-  cors({
-    origin: corsOrigins,
-    credentials: true,
-  })
-);
 
 // simple logger
 app.use((req, _res, next) => {
@@ -400,6 +428,8 @@ io.on("connection", (socket) => {
     if (!tutorId) return;
     const room = `tutor-${tutorId}`;
     socket.join(room);
+    // Store tutor ID in socket data for fallback matching
+    socket.data.tutorId = tutorId;
     console.log(`User ${socket.id} joined tutor room ${room}`);
   });
 

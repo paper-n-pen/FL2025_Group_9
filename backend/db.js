@@ -1,16 +1,22 @@
 // backend/db.js
 const { Pool } = require("pg");
-require("dotenv").config();
+// Only load .env if not in Kubernetes (K8s sets env vars directly)
+// dotenv doesn't override existing env vars, but we skip loading .env in K8s to be safe
+if (!process.env.KUBERNETES_SERVICE_HOST) {
+  require("dotenv").config();
+}
 
 // Read DB settings from DATABASE_URL or fallback to individual env vars
 function getDbConfig() {
   if (process.env.DATABASE_URL) {
     return {
       connectionString: process.env.DATABASE_URL,
-      ssl:
-        process.env.NODE_ENV === "production"
+      ssl: process.env.DB_SSL === "true" || process.env.NODE_ENV === "production"
           ? { rejectUnauthorized: false } // ✅ allow SSL for Render/Heroku
           : false,
+      max: 20, // Maximum number of clients in the pool
+      idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+      connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection cannot be established
     };
   }
   
@@ -32,6 +38,10 @@ function getDbConfig() {
     database: database || "myapp_db",
     password: password || "secret",
     port: parseInt(port || "5432", 10),
+    ssl: process.env.DB_SSL === "true" ? { rejectUnauthorized: false } : false,
+    max: 20, // Maximum number of clients in the pool
+    idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+    connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection cannot be established
   };
 }
 

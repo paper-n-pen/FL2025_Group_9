@@ -101,13 +101,19 @@ async function listTutorsBySubject(subject, limit = 5) {
     const lowerSubject = normalizedSubject.toLowerCase();
     // Also create a version that handles common variations (e.g., "JavaScript" vs "Javascript")
     const alternateSubject = normalizedSubject === 'JavaScript' ? 'Javascript' : (normalizedSubject === 'Javascript' ? 'JavaScript' : normalizedSubject);
+    
+    // For special characters like C++, C#, handle them specially
+    // Escape special regex characters but preserve + and # for matching
+    const escapedSubject = normalizedSubject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedLowerSubject = lowerSubject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    
     console.log(`[DB_QUERY] Searching for tutors with subject: "${normalizedSubject}" (lowercase: "${lowerSubject}", alternate: "${alternateSubject}")`);
 
     // Query using TEXT[] array operations - case-insensitive matching
     // Handle special characters like +, # by using ILIKE and multiple matching strategies
     // CRITICAL: Use comprehensive case-insensitive matching to find all variations
-    // Also handle common variations like "JavaScript" vs "Javascript"
-    // Also fetch stored average_rating and review_count from users table
+    // IMPORTANT: For C++, C#, etc., we need exact string matching including special chars
+    // Use array overlap operator (&&) for better matching with special characters
     const result = await pool.query(
       `SELECT 
          u.id,
@@ -123,21 +129,27 @@ async function listTutorsBySubject(subject, limit = 5) {
        FROM users u
        LEFT JOIN sessions s ON s.tutor_id = u.id
        WHERE u.user_type = 'tutor'
-       AND EXISTS (
-         SELECT 1 FROM unnest(u.specialties) AS spec
-         WHERE 
-           -- Case-insensitive exact match using LOWER() - most reliable
-           LOWER(TRIM(spec)) = $1
-           OR LOWER(TRIM(spec)) = LOWER($2)
-           OR LOWER(TRIM(spec)) = LOWER($3)
-           -- Case-insensitive pattern match using LOWER() and LIKE
-           OR LOWER(TRIM(spec)) LIKE '%' || $1 || '%'
-           OR LOWER(TRIM(spec)) LIKE '%' || LOWER($2) || '%'
-           OR LOWER(TRIM(spec)) LIKE '%' || LOWER($3) || '%'
-           -- Also try ILIKE for pattern matching (handles special chars better)
-           OR TRIM(spec) ILIKE '%' || $1 || '%'
-           OR TRIM(spec) ILIKE '%' || $2 || '%'
-           OR TRIM(spec) ILIKE '%' || $3 || '%'
+       AND (
+         -- Check if any specialty matches exactly (case-insensitive)
+         EXISTS (
+           SELECT 1 FROM unnest(u.specialties) AS spec
+           WHERE 
+             -- Exact match with original case (handles C++, C# exactly)
+             TRIM(spec) = $2
+             -- Exact match case-insensitive
+             OR LOWER(TRIM(spec)) = $1
+             OR TRIM(spec) ILIKE $2
+             -- Pattern match case-insensitive (handles partial matches)
+             OR TRIM(spec) ILIKE '%' || $2 || '%'
+             OR TRIM(spec) ILIKE '%' || $1 || '%'
+             OR LOWER(TRIM(spec)) LIKE '%' || $1 || '%'
+         )
+         -- Also check array overlap for case-insensitive matching
+         OR u.specialties && ARRAY[$2, $1, $3]::text[]
+         OR EXISTS (
+           SELECT 1 FROM unnest(u.specialties) AS spec
+           WHERE LOWER(TRIM(spec)) = ANY(ARRAY[$1, LOWER($2), LOWER($3)]::text[])
+         )
        )
        GROUP BY u.id, u.username, u.specialties, u.rate_per_10_min, u.bio, u.average_rating, u.review_count
        ORDER BY u.rate_per_10_min ASC NULLS LAST, completed_sessions DESC

@@ -43,6 +43,8 @@ export default function TutorDashboard() {
   const [queries, setQueries] = useState<StudentQuery[]>([]);
   const [acceptedQueries, setAcceptedQueries] = useState<StudentQuery[]>([]);
   const declinedQueryIdsRef = useRef<Set<string>>(new Set());
+  // ✅ Use ref to access latest acceptedQueries without causing useEffect to re-run
+  const acceptedQueriesRef = useRef<StudentQuery[]>([]);
   const [tutorUser, setTutorUser] = useState<any>(() => {
     // ✅ CRITICAL: Check sessionStorage FIRST (tab-specific, never cleared by other tabs)
     const tabTutorId = sessionStorage.getItem('tabTutorId');
@@ -144,9 +146,7 @@ export default function TutorDashboard() {
 
     // ✅ CRITICAL: Check sessionStorage FIRST (tab-specific), then localStorage
     // sessionStorage is tab-specific, so it's more reliable for the current tab
-    const tabTutorId = sessionStorage.getItem('tabTutorId');
-    const tabTutorData = sessionStorage.getItem('tabTutorData');
-    
+    // Note: tabTutorId and tabTutorData already declared above, reusing them here
     if (tabTutorId && tabTutorData) {
       try {
         const parsedTutor = JSON.parse(tabTutorData);
@@ -303,25 +303,79 @@ export default function TutorDashboard() {
           const apiUserId = u && (u.id ?? u.userId ?? u.user_id);
 
           // If we HAD a stored user, and ids differ → account switched
+          // if (storedUserId && apiUserId && storedUserId !== apiUserId) {
+          //   console.warn("[AUTH] User ID mismatch - using API user (current logged-in user)", {
+          //     storedUserId,
+          //     fromApi: apiUserId,
+          //     action: 'Clearing old data and using API user'
+          //   });
+
+          //   // Clear any auth-related storage for this tab to use the correct user
+          //   try {
+          //     localStorage.removeItem('tutorUser');
+          //     localStorage.removeItem('tutorToken');
+          //     sessionStorage.removeItem('tabTutorId');
+          //     sessionStorage.removeItem('tabTutorData');
+          //     sessionStorage.removeItem('activeUserType');
+          //   } catch (_) {}
+
+          //   // Continue to use the API user (don't redirect - just use the correct user)
+          //   // This handles the case where localStorage has wrong user but cookie has correct user
+          // }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    // If we HAD a stored user, and ids differ → account switched in another tab.
+          // To avoid this tab silently becoming a different tutor, log out this tab.
           if (storedUserId && apiUserId && storedUserId !== apiUserId) {
-            console.warn("[AUTH] User ID mismatch - using API user (current logged-in user)", {
+            console.warn("[AUTH] 🚨 User ID mismatch for this tab. Stored user and /api/me user differ. Logging out to prevent cross-tab account switch.", {
               storedUserId,
-              fromApi: apiUserId,
-              action: 'Clearing old data and using API user'
+              apiUserId,
             });
 
-            // Clear any auth-related storage for this tab to use the correct user
             try {
-              localStorage.removeItem('tutorUser');
-              localStorage.removeItem('tutorToken');
-              sessionStorage.removeItem('tabTutorId');
-              sessionStorage.removeItem('tabTutorData');
-              sessionStorage.removeItem('activeUserType');
+              // Clear all tutor auth state for THIS tab
+              clearAuthState("tutor");
+              sessionStorage.removeItem("tabTutorId");
+              sessionStorage.removeItem("tabTutorData");
             } catch (_) {}
 
-            // Continue to use the API user (don't redirect - just use the correct user)
-            // This handles the case where localStorage has wrong user but cookie has correct user
+            if (isMounted) {
+              navigate("/tutor/login", { replace: true });
+            }
+
+            // VERY IMPORTANT: do not continue with API user in this tab
+            return;
           }
+
+
+
+
+
+
+
+
+          
+
+
+
 
           // ✅ CRITICAL: Preserve coins from localStorage if API returns 0 or undefined
           // This prevents coins from being reset to 0 after session end
@@ -460,51 +514,30 @@ export default function TutorDashboard() {
     };
 
     // 🔥 NEW: Listen for coin updates when student enters session
-    const coinsUpdatedHandler = (data: any) => {
+    const coinsUpdatedHandler = async (data: any) => {
       console.log('[🪙 COINS] 🔔 Coin update event received from backend:', data);
+      console.log('[🪙 COINS] 🔔 Current tutorUser:', { id: tutorUser?.id, coins: tutorUser?.tokens });
       
       // ✅ CRITICAL: Double-check user ID matches before updating
       if (tutorUser && data.userId === tutorUser.id && data.newBalance !== undefined) {
-        // ✅ EXTRA SAFETY: Verify the userId in the event matches our current tutor
-        const currentTutorFromStorage = getAuthStateForType("tutor").user;
-        if (currentTutorFromStorage?.id !== tutorUser.id) {
-          console.error('[🪙 COINS] ⚠️ User ID mismatch in coin update event!', {
-            eventUserId: data.userId,
-            currentTutorId: tutorUser.id,
-            storageTutorId: currentTutorFromStorage?.id,
-            action: 'Ignoring coin update'
-          });
-          return;
-        }
+        // ✅ STEP 2: Use hardRefreshTutorCoins helper instead of session-specific endpoint
+        // Compute actualTutorId the same way as refreshCoinsFromBackend
+        const tabTutorId = sessionStorage.getItem('tabTutorId');
+        const actualTutorId = tabTutorId ? Number(tabTutorId) : tutorUser.id;
         
-        const updatedTutor = {
-          ...tutorUser,
-          tokens: data.newBalance,
-          coins: data.newBalance,
-        };
-        // Update sessionStorage to preserve tab identity
-        sessionStorage.setItem('tabTutorId', updatedTutor.id.toString());
-        sessionStorage.setItem('tabTutorData', JSON.stringify(updatedTutor));
-        setTutorUser(updatedTutor);
-        storeAuthState('tutor', null, updatedTutor);
-        
-        console.log('[🪙 COINS] ✅ Tutor coins updated from socket event:', {
-          userId: updatedTutor.id,
-          username: updatedTutor.username,
-          newCoins: updatedTutor.tokens,
-          earned: data.earned,
-          reason: data.reason,
+        console.log('[🪙 COINS] 🚀 Socket event received, calling hardRefreshTutorCoins:', {
+          sessionId: data.sessionId,
+          tutorId: actualTutorId,
         });
         
-        // Dispatch event to update TutorNavbar
-        window.dispatchEvent(new CustomEvent('token-update', {
-          detail: { userId: updatedTutor.id, tokens: updatedTutor.tokens }
-        }));
+        // Use /api/me as source of truth (works reliably on Kubernetes)
+        await hardRefreshTutorCoins(actualTutorId);
       } else {
         console.log('[🪙 COINS] ⚠️ Coin update event ignored - user ID mismatch or missing data:', {
           eventUserId: data.userId,
           currentTutorId: tutorUser?.id,
           hasBalance: data.newBalance !== undefined,
+          tutorUserExists: !!tutorUser,
         });
       }
     };
@@ -517,51 +550,80 @@ export default function TutorDashboard() {
     socket.on("session-ended", sessionEndedHandler);
     socket.on("coins-updated", coinsUpdatedHandler);  // 🔥 NEW
 
-    // ✅ Refresh coins from backend when dashboard loads
-    const refreshCoinsFromBackend = async () => {
-      if (!tutorUser?.id) return;
-      
+    // ✅ STEP 1: Reusable helper to hard refresh tutor coins from /api/me
+    // This is the primary source of truth for tutor coin updates on Kubernetes
+    const hardRefreshTutorCoins = async (actualTutorId: number): Promise<void> => {
       try {
-        // ✅ CRITICAL: Use sessionStorage tutor ID if available (more reliable)
-        const tabTutorId = sessionStorage.getItem('tabTutorId');
-        const actualTutorId = tabTutorId ? Number(tabTutorId) : tutorUser.id;
-        
         const url = `${apiPath("/me")}?expectedUserId=${actualTutorId}`;
         const res = await api.get(url);
         const u = res?.user;
         
         // ✅ CRITICAL: Only update if the API returns the same tutor ID
         if (u && u.id === actualTutorId && u.tokens !== undefined) {
-          const updatedTutor = {
-            ...tutorUser,
-            id: u.id, // Ensure we use the correct ID from API
-            tokens: u.tokens,
-            coins: u.tokens,
-          };
-          setTutorUser(updatedTutor);
-          storeAuthState("tutor", null, updatedTutor);
-          // ✅ CRITICAL: Always update sessionStorage with correct tutor ID
-          sessionStorage.setItem('tabTutorId', u.id.toString());
-          sessionStorage.setItem('tabTutorData', JSON.stringify(updatedTutor));
-          
-          console.log('[🪙 COINS] ✅ Refreshed tutor coins from backend:', {
-            userId: u.id,
-            coins: u.tokens,
+          // Use functional update to get latest tutorUser state
+          setTutorUser((currentTutor: any) => {
+            const updatedTutor = {
+              ...currentTutor,
+              id: u.id, // Ensure we use the correct ID from API
+              tokens: u.tokens,
+              coins: u.tokens,
+            };
+            
+            // Update localStorage
+            storeAuthState("tutor", null, updatedTutor);
+            
+            // ✅ CRITICAL: Always update sessionStorage with correct tutor ID
+            sessionStorage.setItem('tabTutorId', u.id.toString());
+            sessionStorage.setItem('tabTutorData', JSON.stringify(updatedTutor));
+            
+            // Dispatch event to update TutorNavbar
+            window.dispatchEvent(new CustomEvent('token-update', {
+              detail: { userId: u.id, tokens: u.tokens, coins: u.tokens, tutorCoins: u.tokens }
+            }));
+            
+            console.log('[🪙 COINS][tutor] hardRefreshTutorCoins updated to', u.tokens);
+            
+            return updatedTutor;
           });
-          
-          // Dispatch event to update TutorNavbar
-          window.dispatchEvent(new CustomEvent('token-update', {
-            detail: { userId: u.id, tokens: u.tokens, coins: u.tokens, tutorCoins: u.tokens }
-          }));
         }
       } catch (err) {
-        console.warn('[🪙 COINS] ⚠️ Failed to refresh coins from backend:', err);
+        console.warn('[🪙 COINS][tutor] hardRefreshTutorCoins failed:', err);
+        // Do not throw - fail silently
       }
     };
 
-    // Refresh coins on mount and every 30 seconds
+    // ✅ Refresh coins from backend when dashboard loads
+    const refreshCoinsFromBackend = async () => {
+      if (!tutorUser?.id) return;
+      
+      // ✅ CRITICAL: Use sessionStorage tutor ID if available (more reliable)
+      const tabTutorId = sessionStorage.getItem('tabTutorId');
+      const actualTutorId = tabTutorId ? Number(tabTutorId) : tutorUser.id;
+      
+      await hardRefreshTutorCoins(actualTutorId);
+    };
+
+    // Refresh coins on mount and every 30 seconds (slow refresh)
     refreshCoinsFromBackend();
     const coinsInterval = setInterval(refreshCoinsFromBackend, 30000);
+    
+    // ✅ CRITICAL: Fast fallback polling (every 2 seconds) to catch coin updates even if socket event is missed
+    // This ensures tutor coins update within 2-3 seconds even if socket event is not received
+    // ✅ STEP 3: Simplified to always use /api/me via hardRefreshTutorCoins (works reliably on Kubernetes)
+    const fastCoinsInterval = setInterval(async () => {
+      if (!tutorUser?.id) return;
+      
+      try {
+        // Use sessionStorage tutor ID if available
+        const tabTutorId = sessionStorage.getItem('tabTutorId');
+        const actualTutorId = tabTutorId ? Number(tabTutorId) : tutorUser.id;
+        
+        // Always use /api/me as source of truth (no session-specific endpoint logic)
+        await hardRefreshTutorCoins(actualTutorId);
+      } catch (err) {
+        // Silently fail - don't spam console with polling errors
+      }
+    }, 2000); // Poll every 2 seconds
 
     return () => {
       if (tutorUser?.id) socket.emit("leave-tutor-room", tutorUser.id);
@@ -573,8 +635,9 @@ export default function TutorDashboard() {
       socket.off("session-ended", sessionEndedHandler);
       socket.off("coins-updated", coinsUpdatedHandler);  // 🔥 NEW
       clearInterval(coinsInterval);
+      clearInterval(fastCoinsInterval); // Clear fast polling interval
     };
-  }, [tutorUser?.id, tutorUser, fetchQueries]);
+  }, [tutorUser?.id, tutorUser, fetchQueries]); // Removed acceptedQueries - using ref instead to prevent constant re-renders
 
   // ✅ Fetch available queries (periodic)
   useEffect(() => {
@@ -664,7 +727,13 @@ export default function TutorDashboard() {
       }
     } catch (error: any) {
       console.error("Error accepting query:", error);
-      alert("Failed to accept query. Please try again.");
+      // Check if it's an authentication error
+      const errorMessage = error?.response?.data?.message || error?.message || "";
+      if (errorMessage.includes("Authentication required") || errorMessage.includes("log in") || error?.response?.status === 401) {
+        alert("Authentication error: Please log out and log back in as a tutor to accept queries.");
+      } else {
+        alert("Failed to accept query. Please try again.");
+      }
     }
   };
 

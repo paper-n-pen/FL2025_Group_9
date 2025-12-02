@@ -429,75 +429,54 @@ export default function StudentDashboard() {
       });
 
     try {
-      // 1) Charge COINS on backend BEFORE entering room
-      const res = await axios.post(`/api/queries/session/${sessionId}/charge-on-enter`);
-
-      console.log(
-        '[🪙 COINS ENTER] Backend /charge-on-enter response',
-        res.data
-      );
-
-      if (!res.data || res.data.ok !== true) {
-        console.error(
-          '[🪙 COINS ENTER ERROR] Backend did not return ok=true',
-          res.data
-        );
-        alert(res.data?.message || 'Failed to enter session (coin error)');
-        return;
-      }
-
-      // ✅ STEP 2: Fetch BOTH student and tutor coins in parallel using TWO separate GET endpoints
-      // This ensures both APIs are called at EXACTLY the same time
-      const studentId = res.data.studentId || studentUser.id;
-      const tutorId = res.data.tutorId;
+      // ✅ STEP 1: Call ONLY student coins endpoint - backend will handle charge and tutor credit automatically
+      const studentId = studentUser.id;
       
-      if (!tutorId) {
-        console.error('[🪙 COINS SYNC] ❌ No tutorId in response, cannot fetch both coins');
-        alert('Error: Tutor ID not found. Please try again.');
-        return;
-      }
-
-      console.log('[🪙 COINS SYNC] 🚀 Calling BOTH GET endpoints in parallel:', {
+      console.log('[🪙 COINS SYNC] 🚀 Calling student GET endpoint (backend handles tutor credit):', {
         studentId,
-        tutorId,
         sessionId,
       });
 
-      // ✅ CRITICAL: Call BOTH GET endpoints in parallel using Promise.all
+      // ✅ STEP 1: Call ONLY the student endpoint - backend will deduct from student and credit tutor
       const studentPath = apiPath(`/queries/session/${sessionId}/user/${studentId}/coins`);
-      const tutorPath = apiPath(`/queries/session/${sessionId}/user/${tutorId}/coins`);
-      
-      const startTime = performance.now();
-      
-      // Create both fetch promises - they start IMMEDIATELY at the same time
-      // Add error handling to ensure navigation happens even if coin fetching fails
       const fetchOptions = { credentials: 'include' as RequestCredentials, method: 'GET' as const };
       let studentResult: any = null;
-      let tutorResult: any = null;
+      
+      console.log('[🪙 COINS SYNC] 🚀 Calling student coins endpoint:', {
+        studentPath,
+        timestamp: Date.now(),
+      });
       
       try {
-        const [studentResponse, tutorResponse] = await Promise.all([
-          fetch(studentPath, fetchOptions),
-          fetch(tutorPath, fetchOptions),
-        ]);
-        
-        // Parse JSON responses
+        const studentResponse = await fetch(studentPath, fetchOptions);
+        console.log('[🪙 COINS SYNC] ✅ Student API response received');
         studentResult = await studentResponse.json().catch(() => ({ ok: false }));
-        tutorResult = await tutorResponse.json().catch(() => ({ ok: false }));
+        
+        // ✅ STEP 1: Check for insufficient coins error
+        if (!studentResult.ok) {
+          if (studentResult.code === 'INSUFFICIENT_TOKENS' || studentResult.code === 'INSUFFICIENT_COINS') {
+            const errorMsg = studentResult.message || `You do not have enough coins to enter this session.`;
+            pushSnack(errorMsg, "error");
+            setLoading(false);
+            return;
+          }
+          // Other errors - show generic message
+          pushSnack(studentResult.message || 'Failed to enter session. Please try again.', "error");
+          setLoading(false);
+          return;
+        }
       } catch (fetchError) {
-        console.error('[🪙 COINS SYNC] ⚠️ Error fetching coins, but continuing with navigation:', fetchError);
-        // Continue with navigation even if coin fetching fails
-        studentResult = { ok: false };
-        tutorResult = { ok: false };
+        console.error('[🪙 COINS SYNC] ⚠️ Error fetching coins:', fetchError);
+        pushSnack('Failed to enter session. Please try again.', "error");
+        setLoading(false);
+        return;
       }
       
-      const endTime = performance.now();
-      console.log('[🪙 COINS SYNC] ✅ Both GET endpoints completed in parallel, time:', endTime - startTime, 'ms');
+      console.log('[🪙 COINS SYNC] ✅ Student GET endpoint completed');
       console.log('[🪙 COINS SYNC] Results:', {
         studentOk: studentResult?.ok,
-        tutorOk: tutorResult?.ok,
         studentCoins: studentResult?.coins,
-        tutorCoins: tutorResult?.coins,
+        tutorCoins: studentResult?.tutorCoins, // Optional: backend may include tutor coins in response
       });
 
       // Update student coins from GET response
@@ -522,41 +501,13 @@ export default function StudentDashboard() {
         console.warn('[🪙 COINS SYNC] ⚠️ Student coins GET endpoint did not return valid data, using current coins:', finalStudentCoins);
       }
 
-      // Update tutor coins from GET response
-      // ⚠️ IMPORTANT: Only update tutor localStorage if that tutor is currently logged in
-      // We don't want to overwrite another tutor's data
-      if (tutorResult && tutorResult.ok && tutorResult.coins !== undefined && tutorId) {
-        // Check if there's a tutor currently logged in
-        const currentTutorUserJson = localStorage.getItem('tutorUser');
-        if (currentTutorUserJson) {
-          try {
-            const currentTutor = JSON.parse(currentTutorUserJson);
-            // Only update if this tutor is the one in the session
-            if (currentTutor.id === tutorId) {
-              const updatedTutor = {
-                ...currentTutor,
-                tokens: tutorResult.coins,
-                coins: tutorResult.coins,
-              };
-              storeAuthState('tutor', null, updatedTutor);
-              console.log('[🪙 COINS SYNC] ✅ Tutor coins updated (matched logged-in tutor):', {
-                tutorId,
-                coins: tutorResult.coins,
-              });
-            } else {
-              console.log('[🪙 COINS SYNC] ⚠️ Skipping tutor coin update - different tutor logged in:', {
-                sessionTutorId: tutorId,
-                loggedInTutorId: currentTutor.id,
-              });
-            }
-          } catch (e) {
-            console.error('[🪙 COINS SYNC] Failed to parse current tutor user:', e);
-          }
-        } else {
-          console.log('[🪙 COINS SYNC] ⚠️ No tutor logged in, skipping tutor coin update');
-        }
-      } else {
-        console.warn('[🪙 COINS SYNC] ⚠️ Tutor coins GET endpoint did not return valid data');
+      // ✅ STEP 1: Tutor coins are now handled by backend in the student endpoint call
+      // No need to update tutor localStorage here - tutor's /api/me polling will pick it up
+      if (studentResult?.tutorCoins !== undefined) {
+        console.log('[🪙 COINS SYNC] ✅ Backend returned tutor coins in response:', {
+          tutorCoins: studentResult.tutorCoins,
+          message: 'Tutor coins will be updated via /api/me polling on tutor dashboard',
+        });
       }
 
       markActiveUserType('student');  // ✅ Ensure sessionStorage is set
@@ -568,14 +519,14 @@ export default function StudentDashboard() {
         const event = new CustomEvent('token-update', { 
           detail: { 
             studentCoins: studentResult?.coins,
-            tutorCoins: tutorResult?.coins,
+            tutorCoins: studentResult?.tutorCoins, // Optional: from backend response
             timestamp: Date.now(),
           } 
         });
         window.dispatchEvent(event);
         console.log('[🪙 COINS SYNC] 📢 Dispatched token-update event:', {
           studentCoins: studentResult?.coins,
-          tutorCoins: tutorResult?.coins,
+          tutorCoins: studentResult?.tutorCoins,
           timestamp: Date.now(),
         });
       };
@@ -587,8 +538,8 @@ export default function StudentDashboard() {
       setTimeout(dispatchUpdate, 10);
       setTimeout(dispatchUpdate, 50);
       
-      // Ensure both localStorage entries are updated before navigation
-      console.log('[🪙 COINS SYNC] ✅ Both student and tutor coins updated simultaneously');
+      // Student coins updated - tutor coins handled by backend and will be picked up via /api/me polling
+      console.log('[🪙 COINS SYNC] ✅ Student coins updated; tutor coins handled by backend');
 
       // 3) Navigate to the existing session room page with UPDATED user data
       // Use the student user from state (updated from GET endpoint)

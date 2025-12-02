@@ -159,29 +159,43 @@ export default function TutorNavbar({
   useEffect(() => {
     const handleTokenUpdate = (event: Event) => {
       const customEvent = event as CustomEvent;
+      console.log('[TUTOR NAVBAR] 🔔 Token update event received:', customEvent.detail);
+      
       // Get current user from state at the time of event
       const currentUserJson = localStorage.getItem('tutorUser');
+      const eventUserId = customEvent.detail?.userId;
+      const eventTutorCoins = customEvent.detail?.tutorCoins;
+      
       if (currentUserJson) {
         try {
           const currentUser = JSON.parse(currentUserJson);
-          const eventUserId = customEvent.detail?.userId;
-          const eventTutorCoins = customEvent.detail?.tutorCoins;
           
-          // ✅ CRITICAL: Always reload if tutorCoins are in the event (session end scenario)
+          // ✅ CRITICAL: Always reload if tutorCoins are in the event (session started scenario)
           if (eventTutorCoins !== undefined && eventTutorCoins !== null) {
-            console.log('[TUTOR NAVBAR] 🔔 Token update event with tutorCoins, forcing reload:', eventTutorCoins);
+            console.log('[TUTOR NAVBAR] 🔔 Token update event with tutorCoins, forcing reload:', {
+              eventTutorCoins,
+              currentUserId: currentUser?.id,
+              eventUserId,
+            });
             loadTutorUser();
             return;
           }
           
           // Only reload if the event is for the current user or no userId specified
           if (eventUserId && currentUser?.id && eventUserId !== currentUser.id) {
+            console.log('[TUTOR NAVBAR] ⚠️ Ignoring event - different user:', {
+              eventUserId,
+              currentUserId: currentUser.id,
+            });
             return; // Ignore events for other users
           }
         } catch (e) {
+          console.error('[TUTOR NAVBAR] Error parsing currentUser:', e);
           // If parsing fails, just reload
         }
       }
+      
+      console.log('[TUTOR NAVBAR] 🔄 Reloading tutor user from storage');
       loadTutorUser();
     };
 
