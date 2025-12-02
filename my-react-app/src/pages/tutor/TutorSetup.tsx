@@ -18,7 +18,7 @@ import Autocomplete, {
 import { Link, useNavigate } from "react-router-dom";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
-import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
+import { storeAuthState, markActiveUserType, clearAllAuthStates } from "../../utils/authStorage";
 
 // ✅ Predefined list of specialties tutors can choose from
 const specialtiesList = [
@@ -115,7 +115,10 @@ export default function TutorSetup() {
         username: user.username || user.name || user.email,
       };
 
-      storeAuthState(typeKey, null, normalizedUser);
+      // ✅ CRITICAL: Clear ALL auth states before storing new user to prevent showing old account
+      clearAllAuthStates();
+      
+      storeAuthState(typeKey, null, normalizedUser, true); // Force overwrite
       markActiveUserType(typeKey);
 
       setSuccess("✅ Account created! Taking you to your dashboard...");
@@ -295,13 +298,6 @@ export default function TutorSetup() {
             sx={{ 
               mt: 3,
               background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
-              transition: "all 0.3s ease",
-              boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
-              "&:hover": {
-                transform: "translateY(-2px)",
-                boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
-                background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
-              },
               borderRadius: "16px",
               px: 4,
               py: 1.5,
@@ -310,6 +306,7 @@ export default function TutorSetup() {
               fontWeight: 600,
               fontSize: "1rem",
               transition: "transform 0.2s ease, box-shadow 0.2s ease",
+              boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
               "&:hover": {
                 transform: "scale(1.05)",
                 boxShadow: "0 4px 12px rgba(113, 90, 90, 0.4)",

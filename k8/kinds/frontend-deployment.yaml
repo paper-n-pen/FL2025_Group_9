@@ -27,8 +27,8 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: microtutor-frontend:v1764654236
-          imagePullPolicy: Never
+          image: gcr.io/my-project-4307-480006/microtutor-frontend:v1764661389
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
           readinessProbe:

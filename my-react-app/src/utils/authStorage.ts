@@ -28,7 +28,8 @@ const parseUser = (raw: string | null) => {
 export const storeAuthState = (
   userType: SupportedUserType,
   token: string | null,
-  user: any
+  user: any,
+  forceOverwrite: boolean = false
 ) => {
   const keys = STORAGE_KEYS[userType];
   if (!keys) {
@@ -36,18 +37,20 @@ export const storeAuthState = (
   }
 
   // ✅ CRITICAL: Check if we're trying to overwrite a different user's data
+  // Only block if forceOverwrite is false (default behavior for safety)
   const existingUser = parseUser(localStorage.getItem(keys.user));
-  if (existingUser && user && existingUser.id && user.id && existingUser.id !== user.id) {
-    console.error('[AUTH STORAGE] 🚨 PREVENTING DATA OVERWRITE!', {
+  if (!forceOverwrite && existingUser && user && existingUser.id && user.id && existingUser.id !== user.id) {
+    console.warn('[AUTH STORAGE] ⚠️ Different user ID detected, clearing old data first:', {
       userType,
       existingUserId: existingUser.id,
       existingUsername: existingUser.username,
       newUserId: user.id,
       newUsername: user.username,
-      action: 'REJECTING storeAuthState call to prevent data corruption'
+      action: 'Clearing old user data before storing new user'
     });
-    // Don't overwrite - keep existing user data
-    return;
+    // Clear the old user's data first to allow the new user to be stored
+    localStorage.removeItem(keys.user);
+    localStorage.removeItem(keys.token);
   }
 
   const userPayload = user ? { ...user, userType: userType } : null;
@@ -120,6 +123,15 @@ export const clearAuthState = (userType: SupportedUserType) => {
   if (activeType === userType) {
     sessionStorage.removeItem(ACTIVE_USER_SESSION_KEY);
   }
+  
+  // ✅ CRITICAL: Clear all sessionStorage items related to this user type
+  if (userType === 'tutor') {
+    sessionStorage.removeItem('tabTutorId');
+    sessionStorage.removeItem('tabTutorData');
+  } else if (userType === 'student') {
+    sessionStorage.removeItem('tabStudentId');
+    sessionStorage.removeItem('tabStudentData');
+  }
 };
 
 export const clearAllAuthStates = () => {
@@ -130,4 +142,10 @@ export const clearAllAuthStates = () => {
   });
 
   sessionStorage.removeItem(ACTIVE_USER_SESSION_KEY);
+  
+  // ✅ CRITICAL: Clear all sessionStorage items for both user types
+  sessionStorage.removeItem('tabTutorId');
+  sessionStorage.removeItem('tabTutorData');
+  sessionStorage.removeItem('tabStudentId');
+  sessionStorage.removeItem('tabStudentData');
 };

@@ -18,7 +18,7 @@ import {
   SvgIcon,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
-import { getAuthStateForType, markActiveUserType, clearAuthState, storeAuthState } from "../../utils/authStorage";
+import { getAuthStateForType, markActiveUserType, clearAuthState, clearAllAuthStates, storeAuthState } from "../../utils/authStorage";
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
@@ -860,10 +860,8 @@ export default function TutorDashboard() {
     } catch (error) {
       console.error("Tutor logout error:", error);
     } finally {
-      clearAuthState("tutor");
-      // Clear sessionStorage on logout
-      sessionStorage.removeItem('tabTutorId');
-      sessionStorage.removeItem('tabTutorData');
+      // ✅ CRITICAL: Clear ALL auth states to prevent showing old user data
+      clearAllAuthStates();
       setTutorUser(null);
       navigate("/tutor/login", { replace: true });
     }

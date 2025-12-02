@@ -11,7 +11,7 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import { storeAuthState, markActiveUserType, getAuthStateForType, clearAuthState } from "../../utils/authStorage";
+import { storeAuthState, markActiveUserType, getAuthStateForType, clearAuthState, clearAllAuthStates } from "../../utils/authStorage";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
 
@@ -59,24 +59,11 @@ export default function TutorLogin() {
         coins: user.tokens ?? (resolvedRole === 'student' ? 100 : 0),
       };
 
-      // ✅ CRITICAL: Check if another tutor is already logged in before storing
-      const existingTutor = getAuthStateForType("tutor").user;
-      if (existingTutor && existingTutor.id && existingTutor.id !== normalizedUser.id) {
-        console.error('[TUTOR LOGIN] 🚨 Another tutor is already logged in in another tab!', {
-          existingTutorId: existingTutor.id,
-          existingTutorUsername: existingTutor.username,
-          newTutorId: normalizedUser.id,
-          newTutorUsername: normalizedUser.username,
-          action: 'Clearing old tutor data before storing new tutor'
-        });
-        // Clear the old tutor's data first (this will trigger storage event in other tabs)
-        clearAuthState("tutor");
-        // Small delay to ensure storage event is processed
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
+      // ✅ CRITICAL: Clear ALL auth states before storing new user to prevent showing old account
+      clearAllAuthStates();
 
-      // Store auth state (this will also check for ID mismatch internally)
-      storeAuthState("tutor", null, normalizedUser);
+      // Store auth state (force overwrite to allow new user)
+      storeAuthState("tutor", null, normalizedUser, true);
       markActiveUserType("tutor");
       
       console.log('[TUTOR LOGIN] ✅ Stored tutor user after verification:', {
@@ -147,13 +134,6 @@ export default function TutorLogin() {
             sx={{ 
               mt: 3,
               background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
-              transition: "all 0.3s ease",
-              boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
-              "&:hover": {
-                transform: "translateY(-2px)",
-                boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
-                background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
-              },
               borderRadius: "24px",
               px: 3,
               py: 1.2,
@@ -162,6 +142,7 @@ export default function TutorLogin() {
               fontWeight: 600,
               fontSize: "0.95rem",
               transition: "transform 0.2s ease, box-shadow 0.2s ease",
+              boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
               "&:hover": {
                 transform: "scale(1.05)",
                 boxShadow: "0 4px 12px rgba(113, 90, 90, 0.4)",

@@ -7,7 +7,7 @@ let socketInstance: Socket | null = null;
 const socketConfig: Partial<ManagerOptions & SocketOptions> = {
   withCredentials: true,
   path: SOCKET_PATH,
-  transports: ["websocket", "polling"],
+  transports: ["polling", "websocket"], // Use polling first, then upgrade to websocket (more reliable through proxies)
 };
 const resolvedSocketConfig = socketConfig as ManagerOptions & SocketOptions;
 

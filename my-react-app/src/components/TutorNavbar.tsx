@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Avatar, Box, Button, Chip, Container, Typography } from "@mui/material";
-import { clearAuthState, storeAuthState, getAuthStateForType } from "../utils/authStorage";
+import { clearAuthState, clearAllAuthStates, storeAuthState, getAuthStateForType } from "../utils/authStorage";
 import { getSocket } from "../socket";
 import { apiPath } from "../config";
 import api from "../lib/api";
@@ -247,7 +247,8 @@ export default function TutorNavbar({
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
-      clearAuthState("tutor");
+      // ✅ CRITICAL: Clear ALL auth states to prevent showing old user data
+      clearAllAuthStates();
       navigate("/tutor/login", { replace: true });
     }
   }, [user, socket, navigate]);
@@ -408,18 +409,12 @@ export default function TutorNavbar({
               sx={{
                 fontWeight: 600,
                 background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
-                transition: "all 0.3s ease",
-                boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
-                "&:hover": {
-                  transform: "translateY(-2px)",
-                  boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
-                  background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
-                },
                 borderRadius: "12px",
                 px: 3,
                 py: 1,
                 textTransform: "none",
                 transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
                 "&:hover": {
                   transform: "scale(1.05)",
                   boxShadow: "0 4px 12px rgba(239, 68, 68, 0.4)",

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Avatar, Box, Button, Chip, Container, Typography } from "@mui/material";
-import { clearAuthState, storeAuthState } from "../utils/authStorage";
+import { clearAuthState, clearAllAuthStates, storeAuthState } from "../utils/authStorage";
 import { getSocket } from "../socket";
 import { apiPath } from "../config";
 import api from "../lib/api";
@@ -114,7 +114,8 @@ export default function StudentNavbar({
     } catch (error) {
       console.error("Logout error:", error);
     } finally {
-      clearAuthState("student");
+      // ✅ CRITICAL: Clear ALL auth states to prevent showing old user data
+      clearAllAuthStates();
       navigate("/student/login", { replace: true });
     }
   }, [user, socket, navigate]);

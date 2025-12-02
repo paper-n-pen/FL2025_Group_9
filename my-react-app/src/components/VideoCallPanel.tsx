@@ -147,25 +147,40 @@ export default function VideoCallPanel({
 
     if (!localStreamRef.current) {
       console.log("📹 Getting local stream...");
-      const stream =
-        await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
+      
+      // ✅ FIX: Check if mediaDevices is available (required for HTTP origins)
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const errorMsg = "Camera/microphone access is not available. Please use HTTPS or grant permissions.";
+        console.error("❌", errorMsg);
+        alert(errorMsg);
+        return null;
+      }
+      
+      try {
+        const stream =
+          await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+          });
+
+        localStreamRef.current = stream;
+        setLocalStream(stream);
+        setIsVideoEnabled(true);
+        setIsAudioEnabled(true);
+
+        stream.getTracks().forEach((track) => {
+          pc.addTrack(track, stream);
+          console.log(
+            "✅ Added local track to PC:",
+            track.kind,
+            track.id
+          );
         });
-
-      localStreamRef.current = stream;
-      setLocalStream(stream);
-      setIsVideoEnabled(true);
-      setIsAudioEnabled(true);
-
-      stream.getTracks().forEach((track) => {
-        pc.addTrack(track, stream);
-        console.log(
-          "✅ Added local track to PC:",
-          track.kind,
-          track.id
-        );
-      });
+      } catch (error) {
+        console.error("❌ Error accessing camera/microphone:", error);
+        alert("Failed to access camera/microphone. Please check your browser permissions.");
+        return null;
+      }
     } else {
       console.log(
         "📹 Reusing existing local stream"

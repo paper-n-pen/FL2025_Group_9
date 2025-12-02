@@ -11,7 +11,7 @@ import {
   CircularProgress,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
+import { storeAuthState, markActiveUserType, clearAllAuthStates } from "../../utils/authStorage";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
 
@@ -59,7 +59,10 @@ export default function StudentLogin() {
         coins: user.tokens ?? (resolvedRole === 'student' ? 100 : 0),
       };
 
-      storeAuthState("student", null, normalizedUser);
+      // ✅ CRITICAL: Clear ALL auth states before storing new user to prevent showing old account
+      clearAllAuthStates();
+      
+      storeAuthState("student", null, normalizedUser, true); // Force overwrite
       markActiveUserType("student");
       
       console.log('[STUDENT LOGIN] ✅ Stored student user:', {
@@ -120,13 +123,6 @@ export default function StudentLogin() {
             sx={{ 
               mt: 3,
               background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
-              transition: "all 0.3s ease",
-              boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
-              "&:hover": {
-                transform: "translateY(-2px)",
-                boxShadow: "0 8px 24px rgba(139, 92, 246, 0.4)",
-                background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
-              },
               borderRadius: "24px",
               px: 3,
               py: 1.2,
@@ -135,6 +131,7 @@ export default function StudentLogin() {
               fontWeight: 600,
               fontSize: "0.95rem",
               transition: "transform 0.2s ease, box-shadow 0.2s ease",
+              boxShadow: "0 4px 12px rgba(139, 92, 246, 0.3)",
               "&:hover": {
                 transform: "scale(1.05)",
                 boxShadow: "0 4px 12px rgba(113, 90, 90, 0.4)",

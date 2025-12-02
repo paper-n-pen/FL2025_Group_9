@@ -6,7 +6,7 @@ data:
   NODE_ENV: "development"
   PORT: "3000"
   DB_SSL: "false"
-  CORS_ORIGIN: "http://localhost:8080,http://localhost,http://127.0.0.1"
+  CORS_ORIGIN: "http://localhost:8080,http://localhost,http://127.0.0.1,http://35.184.217.136,http://35.184.217.136:80"
   FRONTEND_BASE_URL: "http://localhost"
   LLM_BASE_URL: "http://ollama:11434/v1"
   LLM_MODEL: "qwen2.5:0.5b"

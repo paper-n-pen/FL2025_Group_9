@@ -26,6 +26,7 @@ import CloseIcon from "@mui/icons-material/Close";
 import {
   markActiveUserType,
   clearAuthState,
+  clearAllAuthStates,
   storeAuthState,
   getAuthStateForType,
 } from "../../utils/authStorage";
@@ -339,7 +340,8 @@ export default function StudentDashboard() {
     } catch (err) {
       console.error("Logout error:", err);
     }
-    clearAuthState?.("student");
+    // ✅ CRITICAL: Clear ALL auth states to prevent showing old user data
+    clearAllAuthStates();
     setStudentUser(null);
     navigate("/student/login", { replace: true });
   };
