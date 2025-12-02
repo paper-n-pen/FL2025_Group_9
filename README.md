@@ -1,4 +1,4 @@
-# FL2025: Group &lt;Group Number&gt; &lt;MicroTutor&gt;
+# FL2025: Group &lt;9&gt; MicroTutor
 
 Name your repository using the following format:  
 **FL2025_Group_&lt;9&gt;**  
