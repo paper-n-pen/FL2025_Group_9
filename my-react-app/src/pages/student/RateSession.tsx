@@ -58,16 +58,22 @@ const normalizeUser = (raw: RawStudentUser): AuthUser => {
   const userType: SupportedUserType = (raw?.userType ?? raw?.role ?? "student").toLowerCase() === "tutor"
     ? "tutor"
     : "student";
-  const username =
-    raw?.username ||
-    raw?.name ||
-    (typeof raw?.email === "string" ? raw.email.split("@")[0] : undefined) ||
-    `user-${raw?.id ?? Date.now()}`;
+
+  const username = (() => {
+    if (typeof raw?.username === "string" && raw.username.trim()) return raw.username;
+    if (typeof raw?.name === "string" && raw.name.trim()) return raw.name;
+    if (typeof raw?.email === "string" && raw.email.includes("@")) {
+      return raw.email.split("@")[0];
+    }
+    return `user-${raw?.id ?? Date.now()}`;
+  })();
+
+  const email = typeof raw?.email === "string" ? raw.email : undefined;
   return {
     ...raw,
     id: Number(raw?.id ?? 0),
     username,
-    email: raw?.email,
+    email,
     userType,
   };
 };
