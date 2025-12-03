@@ -3,9 +3,14 @@
 import { useState, type FormEvent, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { storeAuthState, markActiveUserType } from './utils/authStorage';
-import type { SupportedUserType } from './utils/authStorage';
+import type { SupportedUserType, StoredUser } from './utils/authStorage';
 import { apiPath } from './config';
 import api from './lib/api';
+
+interface RegisterResponse {
+  token?: string | null;
+  user?: StoredUser | null;
+}
 
 function Register() {
   const [username, setUsername] = useState('');
@@ -18,7 +23,7 @@ function Register() {
   const handleRegister = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     try {
-  const res = await api.post(apiPath('/register'), { username, email, password });
+  const res = await api.post<RegisterResponse>(apiPath('/register'), { username, email, password });
   const { token, user } = res ?? {};
 
       if (token && user) {

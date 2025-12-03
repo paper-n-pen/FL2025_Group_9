@@ -1,11 +1,15 @@
 // src/components/Chatbot.tsx
 import React, { useState, useRef, useEffect } from 'react';
 import { apiPath } from '../config';
-import api from '../lib/api';
+import api, { type JsonValue } from '../lib/api';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
   content: string;
+}
+
+interface ChatResponse {
+  reply?: string;
 }
 
 export default function Chatbot() {
@@ -48,8 +52,13 @@ export default function Chatbot() {
       // Send last ~12 messages (to keep context manageable)
       const messagesToSend = updatedMessages.slice(-12);
       
-      const response = await api.post(apiPath('/chat'), {
-        messages: messagesToSend,
+      const sanitizedMessages = messagesToSend.map<Record<string, JsonValue>>((msg) => ({
+        role: msg.role,
+        content: msg.content,
+      }));
+
+      const response = await api.post<ChatResponse>(apiPath('/chat'), {
+        messages: sanitizedMessages,
       });
 
       const assistantMessage: Message = {

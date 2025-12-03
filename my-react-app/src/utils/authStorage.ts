@@ -19,6 +19,15 @@ export interface StoredUser {
   name?: string;
   email?: string;
   userType?: SupportedUserType | string;
+  role?: string;
+  bio?: string;
+  education?: string;
+  specialties?: string[];
+  rate?: number;
+  ratePer10Min?: number;
+  rate_per_10_min?: number;
+  averageRating?: number;
+  ratingsCount?: number;
   [key: string]: unknown;
 }
 
@@ -39,6 +48,10 @@ export interface AuthState {
   token: string | null;
   userType: SupportedUserType | null;
 }
+
+export type MeResponse = {
+  user?: StoredUser | null;
+};
 
 export const storeAuthState = (
   userType: SupportedUserType,

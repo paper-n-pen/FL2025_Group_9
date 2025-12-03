@@ -17,8 +17,9 @@ import Autocomplete, {
 } from "@mui/material/Autocomplete";
 import { Link, useNavigate } from "react-router-dom";
 import { apiPath } from "../../config";
-import api from "../../lib/api";
+import api, { type JsonValue } from "../../lib/api";
 import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
+import type { MeResponse, StoredUser } from "../../utils/authStorage";
 
 // ✅ Predefined list of specialties tutors can choose from
 const specialtiesList = [
@@ -84,15 +85,19 @@ export default function TutorSetup() {
       const rawRate = form.rate_per_10_min ? parseFloat(form.rate_per_10_min) : 0;
       const ratePerTen = Number.isFinite(rawRate) ? Number(rawRate.toFixed(2)) : 0;
 
-      await api.post(apiPath("/register"), {
+      const registerPayload: Record<string, JsonValue> = {
         username: form.name,
         email: form.email,
         password: form.password,
         user_type: "tutor",
-        education: form.education || undefined,
         specialties: form.specialties,
         rate_per_10_min: ratePerTen,
-      });
+      };
+      if (form.education.trim()) {
+        registerPayload.education = form.education.trim();
+      }
+
+      await api.post(apiPath("/register"), registerPayload);
 
       await api.post(apiPath("/login"), {
         email: form.email,
@@ -100,8 +105,8 @@ export default function TutorSetup() {
         role: "tutor",
       });
 
-      const me = await api.get(apiPath("/me"));
-      const user = me?.user;
+      const me = await api.get<MeResponse>(apiPath("/me"));
+      const user: StoredUser | null | undefined = me?.user;
       if (!user) {
         throw new Error("Unable to verify new tutor account");
       }

@@ -16,6 +16,7 @@ import {
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { getAuthStateForType, markActiveUserType, clearAuthState, storeAuthState } from "../../utils/authStorage";
+import type { StoredUser, MeResponse } from "../../utils/authStorage";
 import type { StoredUser } from "../../utils/authStorage";
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
@@ -84,9 +85,9 @@ export default function TutorDashboard() {
 
     const fetchTutor = async () => {
       try {
-        const res = await api.get<{ user?: StoredUser }>(apiPath("/me"));
+        const res = await api.get<MeResponse>(apiPath("/me"));
         const u = res?.user;
-        const resolvedRole = (u?.userType || u?.role || "").toLowerCase();
+        const resolvedRole = `${u?.userType ?? u?.role ?? ""}`.toLowerCase();
 
         // Strict check: ensure we only accept a TUTOR user here.
         if (resolvedRole !== "tutor") {
@@ -155,8 +156,8 @@ export default function TutorDashboard() {
   useEffect(() => {
     if (tutorUser?.id) socket.emit("join-tutor-room", tutorUser.id);
 
-    const newQueryHandler = (query: StudentQuery) => {
-      console.log("New query received:", query);
+    const newQueryHandler = (...args: unknown[]) => {
+      console.log("New query received:", ...args);
     };
 
     socket.on("new-query", newQueryHandler);
@@ -237,6 +238,10 @@ export default function TutorDashboard() {
 
   const handleStartSession = async (query: StudentQuery) => {
     try {
+      if (!tutorUser) {
+        navigate("/tutor/login");
+        return;
+      }
       const response = await api.post<{ sessionId?: string }>(apiPath("/queries/session"), {
         queryId: query.id,
         tutorId: tutorUser.id,

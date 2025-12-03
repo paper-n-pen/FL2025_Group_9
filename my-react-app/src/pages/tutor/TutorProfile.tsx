@@ -79,9 +79,9 @@ export default function TutorProfile() {
     if (stored.user) {
       markActiveUserType("tutor");
       setFormData({
-        bio: stored.user.bio || "",
-        education: stored.user.education || "",
-        specialties: stored.user.specialties || [],
+        bio: typeof stored.user.bio === "string" ? stored.user.bio : "",
+        education: typeof stored.user.education === "string" ? stored.user.education : "",
+        specialties: Array.isArray(stored.user.specialties) ? stored.user.specialties : [],
         ratePer10Min:
           stored.user.ratePer10Min !== undefined &&
           stored.user.ratePer10Min !== null
@@ -148,6 +148,13 @@ export default function TutorProfile() {
         return;
       }
 
+      const rawId = stored.user.id;
+      const userId = typeof rawId === "number" ? rawId : Number(rawId);
+      if (!Number.isFinite(userId)) {
+        navigate("/tutor/login", { replace: true });
+        return;
+      }
+
       const normalizedRate = formData.ratePer10Min
         ? Number(Number(formData.ratePer10Min).toFixed(2))
         : 0;
@@ -155,7 +162,7 @@ export default function TutorProfile() {
       await api.put(apiPath("/queries/profile"), {
         ...formData,
         ratePer10Min: normalizedRate,
-        userId: stored.user.id,
+        userId,
       });
 
       const updatedUser = {

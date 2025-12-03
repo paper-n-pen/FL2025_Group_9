@@ -14,6 +14,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
 import { markActiveUserType, storeAuthState } from "../../utils/authStorage";
+import type { MeResponse, StoredUser } from "../../utils/authStorage";
 
 type RegistrationForm = {
   name: string;
@@ -76,8 +77,8 @@ export default function StudentRegister() {
         role: "student",
       });
 
-      const me = await api.get(apiPath("/me"));
-      const user = me?.user;
+      const me = await api.get<MeResponse>(apiPath("/me"));
+      const user: StoredUser | null | undefined = me?.user;
       if (!user) {
         throw new Error("Unable to verify new student account");
       }

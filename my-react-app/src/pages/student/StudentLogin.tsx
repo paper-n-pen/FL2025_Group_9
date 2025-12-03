@@ -12,6 +12,7 @@ import {
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
 import { storeAuthState, markActiveUserType } from "../../utils/authStorage";
+import type { MeResponse, StoredUser } from "../../utils/authStorage";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
 
@@ -42,9 +43,9 @@ export default function StudentLogin() {
     try {
       await api.post(apiPath("/login"), { ...form, role: "student" });
 
-      const data = await api.get(apiPath("/me"));
+      const data = await api.get<MeResponse>(apiPath("/me"));
 
-      const user = data?.user;
+      const user: StoredUser | null | undefined = data?.user;
       if (!user) {
         throw new Error("Missing user after verification");
       }

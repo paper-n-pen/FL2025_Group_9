@@ -71,10 +71,10 @@ import {
 } from "@mui/material";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 import { apiPath } from "./config";
-import api from "./lib/api";
+import api, { type JsonValue } from "./lib/api";
 
 interface LoginResponse {
-  token: string;
+  token?: string;
 }
 
 export default function Login() {
@@ -88,11 +88,15 @@ export default function Login() {
     event.preventDefault();
     setError("");
     try {
-      const res = await api.post(apiPath("/login"), {
+      const payload: Record<string, JsonValue> = {
         email,
         password,
-        role: role || undefined,
-      }) as LoginResponse | undefined;
+      };
+      if (role) {
+        payload.role = role;
+      }
+
+      const res = await api.post<LoginResponse>(apiPath("/login"), payload);
       if (!res?.token) {
         setError("Login failed.");
         return;

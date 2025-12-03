@@ -70,6 +70,9 @@ export default function TutorProfileView() {
     );
   }
 
+  const specialties = Array.isArray(tutor.specialties) ? tutor.specialties : [];
+  const hasSpecialties = specialties.length > 0;
+
   // Main view
   return (
     <Box
@@ -137,9 +140,9 @@ export default function TutorProfileView() {
           <Typography variant="h6" gutterBottom>
             Specialties
           </Typography>
-          {tutor.specialties?.length > 0 ? (
+          {hasSpecialties ? (
             <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2 }}>
-              {tutor.specialties.map((spec: string, index: number) => (
+              {specialties.map((spec: string, index: number) => (
                 <Chip
                   key={`${spec}-${index}`}
                   label={spec}

@@ -9,9 +9,9 @@ const metaEnv = (import.meta as unknown as {
 
 const BASE = metaEnv?.VITE_API_URL ?? "";
 
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
-type JsonBody = JsonValue | FormData;
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+export type JsonBody = JsonValue | FormData;
 
 type Opts = RequestInit & { json?: JsonBody };
 type ApiOptions = Omit<Opts, "method" | "body" | "json">;

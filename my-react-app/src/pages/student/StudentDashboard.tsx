@@ -27,7 +27,7 @@ import {
   storeAuthState,
   getActiveAuthState,
 } from "../../utils/authStorage";
-import type { StoredUser } from "../../utils/authStorage";
+import type { StoredUser, MeResponse } from "../../utils/authStorage";
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
@@ -182,7 +182,7 @@ export default function StudentDashboard() {
     let cancelled = false;
     (async () => {
       try {
-        const data = await api.get<{ user?: StoredUser }>(apiPath("/me"));
+        const data = await api.get<MeResponse>(apiPath("/me"));
         const fetchedUser = data?.user;
         if (!cancelled && fetchedUser) {
           const role = String(fetchedUser.role ?? fetchedUser.userType ?? "").toLowerCase();
@@ -252,8 +252,11 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (studentUser?.id) socket.emit("join-student-room", studentUser.id);
 
-    const onAccepted = (data: TutorAcceptedPayload) => {
-      const tutorName = data.tutorName ?? "A tutor";
+    const onAccepted = (...args: unknown[]) => {
+      const [raw] = args;
+      const payload: TutorAcceptedPayload =
+        typeof raw === "object" && raw !== null ? (raw as TutorAcceptedPayload) : {};
+      const tutorName = payload.tutorName ?? "A tutor";
       pushSnack(`${tutorName} accepted your query!`, "success");
       fetchTutorResponses();
     };

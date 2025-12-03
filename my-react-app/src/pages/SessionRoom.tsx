@@ -89,6 +89,23 @@ type Snack = {
   open: boolean;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isMessagePayload = (value: unknown): value is Message =>
+  isRecord(value) &&
+  typeof value.id === "string" &&
+  typeof value.text === "string" &&
+  typeof value.sender === "string" &&
+  typeof value.timestamp === "string";
+
+const isSessionEndedPayload = (
+  value: unknown
+): value is { sessionId: string | number; endedBy: string | number } =>
+  isRecord(value) &&
+  (typeof value.sessionId === "string" || typeof value.sessionId === "number") &&
+  (typeof value.endedBy === "string" || typeof value.endedBy === "number");
+
 export default function SessionRoom() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -187,7 +204,9 @@ export default function SessionRoom() {
       socket.emit("join-session", sessionId);
     };
 
-    const handleIncomingMessage = (incoming: Message) => {
+    const handleIncomingMessage = (...args: unknown[]) => {
+      const [incoming] = args;
+      if (!isMessagePayload(incoming)) return;
       const sanitized: Message = {
         ...incoming,
         sender: incoming.sender || "Participant",
@@ -198,9 +217,10 @@ export default function SessionRoom() {
       });
     };
 
-    const handleSessionEnded = (payload: { sessionId: string; endedBy: string }) => {
-      if (!sessionId) return;
-      if (payload?.sessionId?.toString() === sessionId.toString()) {
+    const handleSessionEnded = (...args: unknown[]) => {
+      const [payload] = args;
+      if (!sessionId || !isSessionEndedPayload(payload)) return;
+      if (payload.sessionId.toString() === sessionId.toString()) {
         setConfirmOpen(false);
         setIsEnding(false);
         const isStudent = user?.userType === "student";

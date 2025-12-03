@@ -75,7 +75,7 @@ const normalizeUser = (raw: RawStudentUser): AuthUser => {
 const gradientBg = "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)";
 
 const RateSession = () => {
-  const { sessionId } = useParams();
+  const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
 
   const [user, setUser] = useState<AuthUser | null>(null);
