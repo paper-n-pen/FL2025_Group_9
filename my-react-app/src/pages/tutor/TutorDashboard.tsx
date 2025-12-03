@@ -17,7 +17,6 @@ import {
 import Grid from "@mui/material/GridLegacy";
 import { getAuthStateForType, markActiveUserType, clearAuthState, storeAuthState } from "../../utils/authStorage";
 import type { StoredUser, MeResponse } from "../../utils/authStorage";
-import type { StoredUser } from "../../utils/authStorage";
 import { getSocket } from "../../socket";
 import { apiPath } from "../../config";
 import api from "../../lib/api";
